@@ -15,6 +15,7 @@ coverage/
 homologacao-resultados/
 .neon
 .vercel
+backups/
 
 .vercel
 .env*
