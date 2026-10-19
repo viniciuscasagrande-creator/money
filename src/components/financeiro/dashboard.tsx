@@ -2,8 +2,8 @@
 import Link from "next/link";
 import {
   ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, ArrowUpFromLine,
-  CalendarDays, CheckCircle2, ChevronRight, CircleAlert, Clock3, CreditCard,
-  HandCoins, Layers3, ListChecks, LockKeyhole, RefreshCw, TrendingUp,
+  BookOpenCheck, CalendarDays, CheckCircle2, ChevronRight, CircleAlert, Clock3, CreditCard,
+  HandCoins, Layers3, ListChecks, LockKeyhole, Percent, RefreshCw, TrendingUp,
   Wallet, type LucideIcon
 } from "lucide-react";
 import { ErrorNotice, Loading, StatusBadge, displayDate, useApi, type Title } from "@/components/financeiro/shared";
@@ -86,9 +86,51 @@ export function DashboardView() {
 
   return <div className="fintech-dashboard">
     <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
-      <div><div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.17em] text-[#e4655b]"><span className="h-1.5 w-1.5 rounded-full bg-[#e4655b]"/>PAINEL FINANCEIRO</div><h1 className="text-[30px] font-bold tracking-[-.065em] text-[#252227] sm:text-[35px]">Visão geral</h1><p className="mt-1.5 text-[13px] text-[#8f898e]">{title} Indicadores atualizados a partir dos registros existentes.</p></div>
+      <div><div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.17em] text-[#e4655b]"><span className="h-1.5 w-1.5 rounded-full bg-[#e4655b]"/>PAINEL FINANCEIRO · SOUL v5.0 & CONTÁBIL v4.4</div><h1 className="text-[30px] font-bold tracking-[-.065em] text-[#252227] sm:text-[35px]">Visão geral</h1><p className="mt-1.5 text-[13px] text-[#8f898e]">{title} Indicadores atualizados a partir dos registros existentes.</p></div>
       <button type="button" onClick={reload} disabled={loading} className="fintech-outline-button"><RefreshCw size={16} className={loading ? "animate-spin" : ""}/>Atualizar dados</button>
     </div>
+
+    {!producer && (
+      <section className="fintech-panel mb-5 border border-[#f2dfdc] bg-gradient-to-r from-[#fff8f6] via-white to-[#f8fafc] p-4 sm:p-5" aria-label="Novos módulos homologados SOUL">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-[#e3574f] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">Novo · Homologado</span>
+            <h2 className="text-sm font-bold text-[#252227]">Módulos Operacionais & Motor Contábil Integrado (M1–M10)</h2>
+          </div>
+          <span className="text-[11px] text-[#7c777b]">Acesso direto às entregas dos Pacotes v4.3.2, v4.4 e v5.0</span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Link href="/contabilidade/livros" className="group flex items-start justify-between gap-3 rounded-xl border border-[#ece7e5] bg-white p-3.5 transition hover:border-[#e3574f] hover:shadow-sm">
+            <div>
+              <p className="text-xs font-bold text-[#252227] group-hover:text-[#e3574f]">Livros & Motor Contábil (M1–M10)</p>
+              <p className="mt-1 text-[11px] text-[#7c777b]">28 contas, Partidas Múltiplas, Caixa Bilheteria, PagSeguro NSU, Tributos, DRE e Balancete</p>
+            </div>
+            <BookOpenCheck size={18} className="shrink-0 text-[#e3574f]" />
+          </Link>
+          <Link href="/repasses" className="group flex items-start justify-between gap-3 rounded-xl border border-[#ece7e5] bg-white p-3.5 transition hover:border-[#e3574f] hover:shadow-sm">
+            <div>
+              <p className="text-xs font-bold text-[#252227] group-hover:text-[#e3574f]">Central de 20 Travas & Transferências</p>
+              <p className="mt-1 text-[11px] text-[#7c777b]">Políticas por evento, Retenções ECAD/Aluguel, Faixas Progressivas e Transferência entre Eventos</p>
+            </div>
+            <LockKeyhole size={18} className="shrink-0 text-[#e3574f]" />
+          </Link>
+          <Link href="/taxas" className="group flex items-start justify-between gap-3 rounded-xl border border-[#ece7e5] bg-white p-3.5 transition hover:border-[#e3574f] hover:shadow-sm">
+            <div>
+              <p className="text-xs font-bold text-[#252227] group-hover:text-[#e3574f]">Motor 1x–12x, Spread, POS & Rebate</p>
+              <p className="mt-1 text-[11px] text-[#7c777b]">Simulador de parcelamento 1x–12x, canal POS PagSeguro, Taxa Advanced e Rebate</p>
+            </div>
+            <Percent size={18} className="shrink-0 text-[#e3574f]" />
+          </Link>
+          <Link href="/saldos" className="group flex items-start justify-between gap-3 rounded-xl border border-[#ece7e5] bg-white p-3.5 transition hover:border-[#e3574f] hover:shadow-sm">
+            <div>
+              <p className="text-xs font-bold text-[#252227] group-hover:text-[#e3574f]">Saldos, Posições & Nova Conta</p>
+              <p className="mt-1 text-[11px] text-[#7c777b]">KPIs de saldo bancário vs. razão interno e cadastro rápido de conta bancária</p>
+            </div>
+            <Layers3 size={18} className="shrink-0 text-[#e3574f]" />
+          </Link>
+        </div>
+      </section>
+    )}
 
     {error && <ErrorNotice message={error} retry={reload}/>}
     {loading && !data && <div className="fintech-panel mb-6"><Loading label="Carregando informações financeiras..."/></div>}
@@ -114,7 +156,7 @@ export function DashboardView() {
       <div className="mb-5 grid items-stretch gap-5 xl:grid-cols-[1.75fr_1fr]">
         <FinancialTrend months={data.trend ?? []}/>
         <section className="fintech-panel min-w-0 p-5 sm:p-7"><div className="mb-6"><p className="fintech-eyebrow">ATALHOS</p><h2 className="mt-1 text-[19px] font-bold tracking-[-.035em] text-[#222126]">Acesso rápido</h2><p className="mt-1 text-xs text-[#979196]">Suas operações mais importantes</p></div><div className="space-y-2">
-          {producer ? <><QuickAction href="/repasses" Icon={HandCoins} title="Solicitar repasse" subtitle="Acompanhar solicitações"/><QuickAction href="/saldos" Icon={Layers3} title="Saldos por evento" subtitle="Consultar disponibilidade"/><QuickAction href="/recebimentos" Icon={ArrowDownToLine} title="Meus recebíveis" subtitle="Consultar histórico"/></> : <><QuickAction href="/recebimentos" Icon={ArrowDownToLine} title="Recebimentos" subtitle="Consultar e registrar títulos"/><QuickAction href="/pagamentos" Icon={ArrowUpFromLine} title="Pagamentos" subtitle="Acompanhar vencimentos"/><QuickAction href="/repasses" Icon={HandCoins} title="Repasses" subtitle="Solicitações e aprovações"/><QuickAction href="/conciliacao" Icon={CreditCard} title="Conciliação" subtitle="Conferir divergências"/></>}
+          {producer ? <><QuickAction href="/repasses" Icon={HandCoins} title="Solicitar repasse" subtitle="Acompanhar solicitações e travas"/><QuickAction href="/saldos" Icon={Layers3} title="Saldos por evento" subtitle="Consultar disponibilidade"/><QuickAction href="/recebimentos" Icon={ArrowDownToLine} title="Meus recebíveis" subtitle="Consultar histórico"/></> : <><QuickAction href="/contabilidade/livros" Icon={BookOpenCheck} title="Livros & Motor Contábil (M1–M10)" subtitle="DRE, Balancete, Razão, Caixa e NSU"/><QuickAction href="/repasses" Icon={HandCoins} title="Repasses, 20 Travas & Transferências" subtitle="Políticas, ECAD e transferência entre eventos"/><QuickAction href="/taxas" Icon={Percent} title="Divisão de Receitas 1x–12x & POS" subtitle="Spread parcelado, Advanced e Rebate"/><QuickAction href="/saldos" Icon={Layers3} title="Saldos, Posições & Nova Conta" subtitle="KPIs e cadastro rápido de conta bancária"/><QuickAction href="/conciliacao" Icon={CreditCard} title="Conciliação" subtitle="Conferir divergências"/></>}
         </div></section>
       </div>
 

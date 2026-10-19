@@ -74,6 +74,7 @@ export function PayoutsPage(){
         <div>Repasse disponível<p className="mt-1 text-sm font-semibold text-emerald-700">{fmtBRL(e.repasseCents)}</p></div></div></div>)}
         {!data?.events.length&&<Empty text="Nenhum evento disponível."/>}</div></FormCard>
     </div>
+    <PayoutLocksPanel onChanged={reload}/>
     <div className="mt-5"><ListSearch value={query} onChange={setQuery} count={shown.length} label="Buscar repasse, evento, produtor ou situação"/></div>
     <Card className="mt-5 overflow-hidden"><div className="border-b border-slate-100 p-5 font-semibold">Solicitações e etapas de aprovação</div>
       {shown.length?<div className="overflow-x-auto"><table className="dashboard-table"><thead><tr><th>Produtor / evento</th><th>Tipo</th><th>Valor</th><th>Status</th><th>Registro</th><th>Detalhes</th><th>Próxima ação</th></tr></thead><tbody>{shown.map(p=><tr key={p.id}>
@@ -82,7 +83,6 @@ export function PayoutsPage(){
         <td><Badge tone={p.status==="SETTLED"?"green":p.status==="REJECTED"?"red":"amber"}>{statuses[p.status]}</Badge>{p.rejectionReason&&<p className="mt-2 max-w-56 text-xs text-red-600">{p.rejectionReason}</p>}</td>
         <td>{displayDateTime(p.createdAt)}</td><td><DetailsButton onClick={()=>setDetailId(p.id)}/></td><td><div className="flex flex-wrap gap-2">{(data?availableActions(p,data.role):[]).map(a=><Button key={a} variant="outline" size="sm" onClick={()=>{setSelected({p,action:a});setMessage("");}}>{actions[a]}</Button>)}</div></td>
       </tr>)}</tbody></table></div>:<Empty text="Nenhuma solicitação registrada."/>}</Card>
-    <PayoutLocksPanel onChanged={reload}/>
     {selected&&<Dialog open={!!selected} onOpenChange={open=>{if(!open)setSelected(null);}}><DialogContent><DialogTitle className="text-xl font-bold">{actions[selected.action]}</DialogTitle><DialogDescription>Ação autorizada e registrada na auditoria, sem instrução de pagamento real.</DialogDescription>
       <p className="mt-2 text-sm text-slate-500">{selected.p.eventName} · {fmtBRL(selected.p.amountCents)} · {selected.p.type}</p>
       <form onSubmit={act} className="mt-4 max-w-lg space-y-4">

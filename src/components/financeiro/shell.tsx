@@ -42,7 +42,8 @@ const groups: MenuGroup[] = [
   { title: "PLANEJAMENTO", items: [
     { label: "Planejamento financeiro", url: "/planejamento", icon: CalendarRange, internal: true },
     { label: "Contratos", url: "/contratos", icon: FileSignature, internal: true },
-    { label: "Contabilidade", url: "/contabilidade", icon: BookOpenCheck, internal: true }
+    { label: "Contabilidade", url: "/contabilidade", icon: BookOpenCheck, internal: true },
+    { label: "Livros e motor contábil", url: "/contabilidade/livros", icon: BookOpenCheck, internal: true }
   ]},
   { title: "ADMINISTRAÇÃO", items: [
     { label: "Permissões e alçadas", url: "/governanca", icon: ShieldCheck, admin: true },
@@ -58,7 +59,7 @@ const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(p =>
 function Brand({ compact = false }: { compact?: boolean }) {
   return <div className="flex min-w-0 items-center gap-3">
     <div className="fintech-brand-mark" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3.5 16.5 9 7.5l4.4 6L20.5 4.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M15.5 4.5h5v5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-    {!compact && <div className="min-w-0"><p className="text-[17px] font-bold tracking-[-.045em] text-white">SOUL<span className="text-[#ff746b]">.</span></p><p className="text-[9px] font-semibold uppercase tracking-[.18em] text-[#929398]">ERP FINANCEIRO</p></div>}
+    {!compact && <div className="min-w-0"><p className="flex items-center gap-1.5 text-[17px] font-bold tracking-[-.045em] text-white"><span>SOUL<span className="text-[#ff746b]">.</span></span><span className="rounded bg-[#ff746b]/20 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-[#ff938b]">v5.0</span></p><p className="text-[9px] font-semibold uppercase tracking-[.16em] text-[#929398]">ERP · CONTÁBIL v4.4</p></div>}
   </div>;
 }
 
