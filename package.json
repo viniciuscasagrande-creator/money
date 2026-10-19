@@ -17,7 +17,9 @@
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:homologacao": "node scripts/homologacao-integrada.mjs",
     "test:static": "node scripts/validacao-estatica.mjs",
-    "test:unit:isolado": "node scripts/testes-sem-dependencias.mjs"
+    "test:unit:isolado": "node scripts/testes-sem-dependencias.mjs",
+    "deploy:build": "node scripts/deploy-build.mjs",
+    "vercel-build": "node scripts/deploy-build.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
