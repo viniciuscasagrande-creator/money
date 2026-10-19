@@ -9,6 +9,24 @@ import { Badge } from "@/components/ui/badge";
 import { Empty, ErrorNotice, Loading, PageHeading, useApi } from "@/components/financeiro/shared";
 import { fmtBRL } from "@/lib/money";
 
+type EventPositionItem = {
+  id: string;
+  name: string;
+  producerId?: string;
+  producerName?: string;
+  totalCents: string;
+  settledCents: string;
+  committedCents: string;
+  reserveCents?: string;
+  retainedCents?: string;
+  transferReservedCents?: string;
+  transferOutCents?: string;
+  transferInCents?: string;
+  internalPositionCents?: string;
+  repasseCents: string;
+  antecipacaoCents: string;
+};
+
 type Internal = {
   mode: "INTERNAL";
   items: {
@@ -20,18 +38,11 @@ type Internal = {
     ledgerBalanceCents: string;
     reconciled: boolean;
   }[];
+  events?: EventPositionItem[];
 };
 type Producer = {
   mode: "PRODUCER_INFORMATIONAL";
-  items: {
-    id: string;
-    name: string;
-    totalCents: string;
-    settledCents: string;
-    committedCents: string;
-    repasseCents: string;
-    antecipacaoCents: string;
-  }[];
+  items: EventPositionItem[];
 };
 
 export function BalancesPage() {
@@ -39,6 +50,7 @@ export function BalancesPage() {
   const [open, setOpen] = useState(false);
 
   const internalItems = data?.mode === "INTERNAL" ? data.items : [];
+  const internalEvents = data?.mode === "INTERNAL" ? data.events ?? [] : [];
   const totalBankCents = internalItems.reduce((acc, a) => acc + BigInt(a.balanceCents || "0"), 0n);
   const totalLedgerCents = internalItems.reduce((acc, a) => acc + BigInt(a.ledgerBalanceCents || "0"), 0n);
   const diffCents = totalBankCents - totalLedgerCents;
@@ -50,15 +62,23 @@ export function BalancesPage() {
         title="Saldos e Posições"
         subtitle={
           data?.mode === "PRODUCER_INFORMATIONAL"
-            ? "Posição das obrigações de cada evento, com reserva para solicitações e baixas já registradas."
-            : "Compare saldos bancários registrados com o razão financeiro e identifique divergências."
+            ? "Posição das obrigações de cada evento, com reserva para solicitações, retenções contratuais e baixas já registradas."
+            : "Compare saldos bancários registrados com o razão financeiro, identifique divergências e acompanhe a posição segregada por evento e produtor."
         }
         action={
           data?.mode === "INTERNAL" ? (
-            <Button onClick={() => setOpen(true)}>
-              <Plus size={17} />
-              Nova conta bancária
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/contas"
+                className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Origem dos Saldos (Tesouraria)
+              </Link>
+              <Button onClick={() => setOpen(true)}>
+                <Plus size={17} />
+                Nova conta bancária
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -106,6 +126,18 @@ export function BalancesPage() {
               Registrar recebimentos
             </Link>
             <Link
+              href="/retencoes"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Retenções por Evento
+            </Link>
+            <Link
+              href="/transferencias"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Transferências entre Eventos
+            </Link>
+            <Link
               href="/contabilidade/livros"
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
@@ -115,7 +147,12 @@ export function BalancesPage() {
           </div>
 
           <Card className="overflow-hidden">
-            <div className="border-b border-slate-100 p-5 font-semibold">Conciliação interna de saldos</div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-5">
+              <span className="font-semibold">Conciliação interna de saldos bancários</span>
+              <Link href="/contas" className="text-xs font-semibold text-[#e3574f] hover:underline">
+                Ver decomposição de saldo inicial + entradas/saídas →
+              </Link>
+            </div>
             {data.items.length ? (
               <div className="overflow-x-auto">
                 <table className="dashboard-table">
@@ -171,6 +208,54 @@ export function BalancesPage() {
               </div>
             )}
           </Card>
+
+          <Card className="overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-5">
+              <div>
+                <h2 className="font-semibold">Posições segregadas por evento e produtor</h2>
+                <p className="text-xs text-slate-500">
+                  Direitos líquidos das vendas, valores efetivamente liquidados, retenções obrigatórias (ECAD/locação), transferências e saldo elegível para repasse.
+                </p>
+              </div>
+              <Link href="/repasses" className="text-xs font-semibold text-[#e3574f] hover:underline">
+                Gerenciar repasses & 20 travas →
+              </Link>
+            </div>
+            {internalEvents.length ? (
+              <div className="overflow-x-auto">
+                <table className="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th>Evento</th>
+                      <th>Produtor</th>
+                      <th>Direitos totais</th>
+                      <th>Liquidado (Disk)</th>
+                      <th>Retenções ativas</th>
+                      <th>Comprometido / Transf.</th>
+                      <th>Posição interna</th>
+                      <th>Elegível p/ repasse</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {internalEvents.map((ev) => (
+                      <tr key={ev.id}>
+                        <td className="font-semibold">{ev.name}</td>
+                        <td>{ev.producerName || "—"}</td>
+                        <td className="whitespace-nowrap">{fmtBRL(ev.totalCents)}</td>
+                        <td className="whitespace-nowrap">{fmtBRL(ev.settledCents)}</td>
+                        <td className="whitespace-nowrap text-amber-700 font-medium">{fmtBRL(ev.reserveCents || ev.retainedCents || "0")}</td>
+                        <td className="whitespace-nowrap">{fmtBRL(ev.committedCents)}</td>
+                        <td className="whitespace-nowrap">{fmtBRL(ev.internalPositionCents || ev.settledCents)}</td>
+                        <td className="whitespace-nowrap font-bold text-emerald-700">{fmtBRL(ev.repasseCents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Empty text="Nenhum evento cadastrado até o momento." />
+            )}
+          </Card>
         </div>
       )}
       {data?.mode === "PRODUCER_INFORMATIONAL" && (
@@ -183,9 +268,20 @@ export function BalancesPage() {
             {data.items.map((e) => (
               <Card key={e.id}>
                 <div className="p-6">
-                  <div className="mb-5 flex items-center gap-2">
-                    <Layers3 size={18} className="text-slate-500" />
-                    <h3 className="font-semibold">{e.name}</h3>
+                  <div className="mb-5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Layers3 size={18} className="text-slate-500" />
+                      <h3 className="font-semibold">{e.name}</h3>
+                    </div>
+                    <div className="flex gap-2">
+                      <Link href="/repasses" className="text-xs font-semibold text-emerald-700 hover:underline">
+                        Solicitar repasse
+                      </Link>
+                      <span className="text-xs text-slate-300">·</span>
+                      <Link href="/transferencias" className="text-xs font-semibold text-indigo-700 hover:underline">
+                        Transferir
+                      </Link>
+                    </div>
                   </div>
                   <div className="flex justify-between py-2 text-sm">
                     <span className="text-slate-500">Direitos do produtor registrados</span>
@@ -195,10 +291,16 @@ export function BalancesPage() {
                     <span className="text-slate-500">Recebidos pela Disk (liquidados)</span>
                     <strong>{fmtBRL(e.settledCents)}</strong>
                   </div>
+                  <div className="flex justify-between py-2 text-sm">
+                    <span className="text-slate-500">Retenções contratuais / obrigatórias ativas</span>
+                    <strong className="text-amber-700">{fmtBRL(e.reserveCents || e.retainedCents || "0")}</strong>
+                  </div>
                   <div className="mt-4 border-t border-slate-100 pt-4 text-sm">
                     <span className="text-slate-500">Elegível para solicitação de repasse</span>
                     <p className="mt-2 font-semibold text-emerald-800">{fmtBRL(e.repasseCents)}</p>
-                    <p className="mt-2 text-xs text-slate-500">Reservado ou já baixado: {fmtBRL(e.committedCents)}</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Reservado, transferido ou já baixado: {fmtBRL(e.committedCents)}
+                    </p>
                   </div>
                 </div>
               </Card>

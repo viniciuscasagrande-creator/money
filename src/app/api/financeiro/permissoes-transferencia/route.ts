@@ -5,7 +5,14 @@ import {prisma} from "@/lib/prisma";
 import {apiCatch} from "@/lib/validation";
 export const runtime="nodejs";
 export async function GET(req:NextRequest){const {error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error)return error;
- const items=await prisma.producerTransferPermission.findMany({include:{producer:{select:{name:true}}}});return NextResponse.json({items:items.map(p=>({producerId:p.producerId,name:p.producer.name,enabled:p.enabled,maxPerTransferCents:p.maxPerTransferCents.toString()}))});}
+ const [items, allProducers]=await Promise.all([
+  prisma.producerTransferPermission.findMany({include:{producer:{select:{name:true}}}}),
+  prisma.producer.findMany({where:{active:true},orderBy:{name:"asc"},select:{id:true,name:true}})
+ ]);
+ return NextResponse.json({
+  items:items.map(p=>({producerId:p.producerId,name:p.producer.name,enabled:p.enabled,maxPerTransferCents:p.maxPerTransferCents.toString()})),
+  producers:allProducers
+ });}
 export async function POST(req:NextRequest){const {user,error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
  try{const v=z.object({producerId:z.string().min(1),enabled:z.boolean(),maxPerTransferCents:z.string().regex(/^\d{1,16}$/)}).strict().parse(await req.json());
  const permission=await prisma.$transaction(async tx=>{const prod=await tx.producer.findUnique({where:{id:v.producerId}});if(!prod)throw new Error("REGRA:Produtor inexistente.");

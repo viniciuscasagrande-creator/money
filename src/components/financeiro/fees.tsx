@@ -59,7 +59,36 @@ export function FeesPage(){
   });
  } catch { simMatrix = null; }
 
+ const allFees = data?.fees || [];
+ const allEvents = data?.events || [];
+ const allRules = data?.rules || [];
+ const pctFees = allFees.filter(f => f.mode === "PERCENT_BPS");
+ const avgFeeBps = pctFees.length ? Math.round(pctFees.reduce((s, f) => s + Number(f.value || 0), 0) / pctFees.length) : 0;
+ const producerPaysMdrCount = allFees.filter(f => f.producerPaysMdr).length;
+
  return <><PageHeading eyebrow="Financeiro interno · configuração confidencial" title="Motor de Receitas, Taxas, Spread, Advanced e Rebate" subtitle="A taxa administrativa SOUL é negociada por evento (percentual ou fixa) e permanece oculta do Produtor no backend. Configure também canal (Online / Maquininha PagSeguro / Bilheteria), responsável pelo encargo e simulador de parcelamento 1x a 12x." action={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={()=>{setMessage("");setExtOpen(true);}}><Sliders size={16}/>Spread, Advanced e Rebate</Button><Button onClick={()=>{setMessage("");setOpen(true);}}><Plus size={16}/>Configurar taxa por evento</Button></div>}/>
+ <div className="mb-5 grid gap-4 md:grid-cols-4">
+  <Card className="p-4">
+   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Eventos com Taxa Configurada</p>
+   <p className="mt-2 font-mono text-xl font-semibold text-slate-900">{allFees.length} / {allEvents.length}</p>
+   <p className="mt-1 text-xs text-slate-500">Políticas comerciais ativas</p>
+  </Card>
+  <Card className="p-4">
+   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Taxa Percentual Média</p>
+   <p className="mt-2 font-mono text-xl font-semibold text-[#b75c53]">{bpsToPercent(avgFeeBps)}</p>
+   <p className="mt-1 text-xs text-slate-500">{pctFees.length} evento(s) em percentual</p>
+  </Card>
+  <Card className="p-4">
+   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">MDR Absorvido pelo Produtor</p>
+   <p className="mt-2 font-mono text-xl font-semibold text-emerald-700">{producerPaysMdrCount}</p>
+   <p className="mt-1 text-xs text-slate-500">{allFees.length - producerPaysMdrCount} absorvido(s) pela SOUL</p>
+  </Card>
+  <Card className="p-4">
+   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Regras de MDR no Catálogo</p>
+   <p className="mt-2 font-mono text-xl font-semibold text-indigo-700">{allRules.filter(r => r.active).length}</p>
+   <p className="mt-1 text-xs text-slate-500">Gateways e bandeiras habilitados</p>
+  </Card>
+ </div>
  {error&&<ErrorNotice message={error} retry={reload}/>} {loading?<Loading/>:<><ListSearch value={query} onChange={setQuery} count={shown.length} label="Buscar taxa por evento ou produtor"/>
  <Card className="overflow-hidden"><div className="border-b border-[#eee9e7] p-5 font-semibold">Regras comerciais internas (Taxa Administrativa SOUL e Absorção de MDR)</div>
  {shown.length?<div className="overflow-x-auto"><table className="dashboard-table"><thead><tr><th>Produtor</th><th>Evento</th><th>Taxa interna SOUL</th><th>Quem absorve MDR</th><th>Visibilidade Produtor</th><th>Ação</th></tr></thead><tbody>{shown.map(f=><tr key={f.id}><td>{f.producerName}</td><td>{f.eventName}</td><td>{f.mode==="PERCENT_BPS"?bpsToPercent(Number(f.value)):fmtBRL(f.value)+" / ingresso"}</td><td>{f.producerPaysMdr?"Produtor":"SOUL (Administradora)"}</td><td><Badge tone="amber">Confidencial no Backend</Badge></td><td><Button size="sm" variant="outline" onClick={()=>{chooseEvent(f.eventId);setOpen(true);}}><Pencil size={14}/>Editar</Button></td></tr>)}</tbody></table></div>:<Empty text="Nenhuma regra corresponde à busca ou foi cadastrada."/>}</Card>

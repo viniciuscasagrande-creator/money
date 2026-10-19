@@ -475,6 +475,58 @@ try {
     assert.equal(closedPeriod.status, 'CLOSED');
   });
 
+  // 12. SOUL v5.1 & v5.2 — Origem do Saldo Bancário (/api/contas), EventReserve (/api/financeiro/retencoes), ProducerTransferPermission (/api/financeiro/permissoes-transferencia) e EventTransfer (/api/financeiro/transferencias)
+  const contasBreakdown = expectStatus(await req('/api/contas', 'GET', undefined, finance), 200, 'Consultar origem de saldos em /api/contas');
+  check('Tesouraria (/api/contas) decompõe saldo inicial, entradas e saídas no razão e extrato recente por conta bancária', () => {
+    const c = contasBreakdown.items.find(x => x.id === conta.id);
+    assert.ok(c);
+    assert.ok(typeof c.openingCents === 'string');
+    assert.ok(typeof c.creditsCents === 'string');
+    assert.ok(typeof c.debitsCents === 'string');
+    assert.ok(Array.isArray(c.recentEntries));
+  });
+
+  const v52Reserve = expectStatus(await req('/api/financeiro/retencoes', 'POST', {
+    eventId: eventA.id, purpose: 'Reserva ECAD v5.2 Prisma', amountCents: '100'
+  }, finance), 201, 'Criar EventReserve v5.2 em /api/financeiro/retencoes');
+  const repassesWithV52Reserve = expectStatus(await req('/api/repasses', 'GET', undefined, a), 200, 'Saldo após EventReserve v5.2');
+  check('Reserva obrigatória Prisma (EventReserve v5.2) reduz imediatamente o repasseCents do evento', () => {
+    assert.ok(v52Reserve.id);
+    const evA1 = repassesWithV52Reserve.events.find(e => e.id === eventA.id);
+    assert.equal(evA1.reserveCents, '100');
+    assert.equal(evA1.repasseCents, '200'); // 300 - 100 = 200
+  });
+
+  expectStatus(await req(`/api/financeiro/retencoes/${v52Reserve.id}`, 'POST', {
+    reason: 'Comprovante de quitação ECAD anexado e conferido'
+  }, finance), 200, 'Liberar EventReserve v5.2 com justificativa auditada');
+  const repassesAfterV52Release = expectStatus(await req('/api/repasses', 'GET', undefined, a), 200, 'Saldo após liberação de EventReserve v5.2');
+  check('Liberação auditada de EventReserve v5.2 recompõe imediatamente o saldo elegível do evento', () => {
+    const evA1 = repassesAfterV52Release.events.find(e => e.id === eventA.id);
+    assert.equal(evA1.reserveCents, '0');
+    assert.equal(evA1.repasseCents, '300');
+  });
+
+  expectStatus(await req('/api/financeiro/permissoes-transferencia', 'POST', {
+    producerId: producerA.id, enabled: true, maxPerTransferCents: '5000'
+  }, finance), 200, 'Habilitar ProducerTransferPermission v5.2');
+  const v52Transfer = expectStatus(await req('/api/financeiro/transferencias', 'POST', {
+    originEventId: eventA.id, destinationEventId: eventA2.id, amountCents: '150', reason: 'Transferência interna auditada v5.2'
+  }, a), 201, 'Solicitar EventTransfer v5.2 pelo Produtor A');
+  expectStatus(await req(`/api/financeiro/transferencias/${v52Transfer.id}`, 'POST', {
+    action: 'APPROVE'
+  }, finance), 200, 'Financeiro aprova EventTransfer v5.2');
+  expectStatus(await req(`/api/financeiro/transferencias/${v52Transfer.id}`, 'POST', {
+    action: 'EXECUTE'
+  }, admin), 200, 'Administrador (terceiro distinto) executa EventTransfer v5.2');
+  const v52TransfersList = expectStatus(await req('/api/financeiro/transferencias', 'GET', undefined, a), 200, 'Listar transferências v5.2');
+  check('Fluxo EventTransfer v5.2 respeita permissão do produtor e segregação de funções (Solicitante != Aprovador != Executor)', () => {
+    const found = v52TransfersList.items.find(t => t.id === v52Transfer.id);
+    assert.ok(found);
+    assert.equal(found.status, 'EXECUTED');
+    assert.equal(found.amountCents, '150');
+  });
+
   console.log(`\nAPROVADO: ${checks.length} grupos de validação. Base exclusiva: ${db.replace(/:[^:@/]+@/, ':***@')}; nenhum acesso bancário externo realizado.`);
 } catch (e) {
   console.error(`\nREPROVADO após ${checks.length} grupos:`, e.stack || e);

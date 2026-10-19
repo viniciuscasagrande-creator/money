@@ -66,7 +66,7 @@ async function main() {
     BOOTSTRAP_ADMIN_PASSWORD: `Homolog!Admin#${Date.now()}`,
   };
 
-  console.log(`\n=== SOUL v5.0 — Homologação Geral em PostgreSQL (Schema Isolado: ${schemaName}) ===`);
+  console.log(`\n=== SOUL v5.2 — Homologação Geral em PostgreSQL (Schema Isolado: ${schemaName}) ===`);
 
   let serverProc = null;
   try {
@@ -76,7 +76,7 @@ async function main() {
       env: homologEnv,
     });
 
-    console.log(`2. Aplicando schema de 23 modelos no schema isolado '${schemaName}'...`);
+    console.log(`2. Aplicando schema de 32 modelos e 17 enums no schema isolado '${schemaName}'...`);
     execSync("npx prisma db push --schema=prisma/postgresql/schema.prisma --skip-generate", {
       stdio: "inherit",
       env: { ...homologEnv, DATABASE_URL: isolatedUnpooledUrl },

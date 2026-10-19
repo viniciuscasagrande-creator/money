@@ -19,12 +19,44 @@ export function SalesPage(){
   const catalog=useApi<Catalog>("/api/financeiro/catalogo"), sales=useApi<{items:Sale[]}>("/api/financeiro/vendas");
   const [eventId,setEventId]=useState(""),[mdrRuleId,setMdrRuleId]=useState(""),[reference,setReference]=useState(""),
     [unitPrice,setUnitPrice]=useState(""),[quantity,setQuantity]=useState("1"),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
-  const shown=searchRows(sales.data?.items,query,s=>[s.reference,s.eventName,s.producerName,s.status,s.gatewayName]);
+  const allSales=sales.data?.items||[];
+  const shown=searchRows(allSales,query,s=>[s.reference,s.eventName,s.producerName,s.status,s.gatewayName]);
+
+  const totalGross=allSales.reduce((acc,s)=>acc+BigInt(s.grossCents||"0"),0n);
+  const totalTickets=allSales.reduce((acc,s)=>acc+Number(s.quantity||0),0);
+  const totalNetSettlement=allSales.reduce((acc,s)=>acc+BigInt(s.netSettlementCents||"0"),0n);
+  const totalMdr=allSales.reduce((acc,s)=>acc+BigInt(s.mdrCents||"0"),0n);
+  const totalProducerNet=allSales.reduce((acc,s)=>acc+BigInt(s.producerNetCents||"0"),0n);
+  const totalDiskNet=allSales.reduce((acc,s)=>acc+BigInt(s.diskNetCents||"0"),0n);
+  const settledCount=allSales.filter(s=>s.status==="SETTLED").length;
+
   async function save(e:FormEvent){e.preventDefault();setBusy(true);setMessage("");try{
     await api("/api/financeiro/vendas",{method:"POST",body:JSON.stringify({externalReference:reference,eventId,mdrRuleId,
       quantity:Number(quantity),unitPriceCents:parseBRLToCents(unitPrice)})});setReference("");setUnitPrice("");setQuantity("1");setCreateOpen(false);sales.reload();
   }catch(e){setMessage(e instanceof Error?e.message:"Erro ao registrar venda.");}finally{setBusy(false);}}
   return <><PageHeading eyebrow="Financeiro interno · receitas por evento" title="Vendas e Divisão de Receitas" subtitle="Registre vendas reais com referência exclusiva. A operação gera um recebível líquido de MDR em aberto; a entrada no banco só ocorre quando esse título for liquidado." action={<Button onClick={()=>{setMessage("");setCreateOpen(true);}}><Plus size={16}/>Nova venda</Button>}/>
+    <div className="mb-5 grid gap-4 md:grid-cols-4">
+      <Card className="p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Volume Bruto Vendido</p>
+        <p className="mt-2 font-mono text-xl font-semibold text-slate-900">{fmtBRL(totalGross.toString())}</p>
+        <p className="mt-1 text-xs text-slate-500">{allSales.length} venda(s) · {totalTickets} ingresso(s)</p>
+      </Card>
+      <Card className="p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Líquido Adquirente</p>
+        <p className="mt-2 font-mono text-xl font-semibold text-indigo-700">{fmtBRL(totalNetSettlement.toString())}</p>
+        <p className="mt-1 text-xs text-slate-500">MDR retido: {fmtBRL(totalMdr.toString())}</p>
+      </Card>
+      <Card className="p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Direito Líquido Produtor</p>
+        <p className="mt-2 font-mono text-xl font-semibold text-emerald-700">{fmtBRL(totalProducerNet.toString())}</p>
+        <p className="mt-1 text-xs text-slate-500">{settledCount} venda(s) liquidada(s)</p>
+      </Card>
+      <Card className="p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Resultado Líquido SOUL</p>
+        <p className="mt-2 font-mono text-xl font-semibold text-[#b75c53]">{fmtBRL(totalDiskNet.toString())}</p>
+        <p className="mt-1 text-xs text-slate-500">{allSales.length - settledCount} aguardando liquidação</p>
+      </Card>
+    </div>
     {message&&<ErrorNotice message={message}/>} {catalog.error&&<ErrorNotice message={catalog.error} retry={catalog.reload}/>} {sales.error&&<ErrorNotice message={sales.error} retry={sales.reload}/>}
     <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="max-w-[800px]"><DialogTitle className="text-xl font-bold">Registrar venda / transação</DialogTitle><DialogDescription>Registro real com regra de taxas e recebível associado.</DialogDescription>{catalog.loading?<Loading/>:<form onSubmit={save} className="grid gap-4 md:grid-cols-3">
       <SelectField label="Evento" value={eventId} onChange={setEventId}><option value="">Selecione</option>{catalog.data?.events.filter(x=>x.status!=="CLOSED").map(x=><option key={x.id} value={x.id}>{x.producerName} · {x.name}</option>)}</SelectField>
