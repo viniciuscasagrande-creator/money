@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Landmark, Plus, Wallet, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,6 +11,13 @@ import { fmtBRL } from "@/lib/money";
 export function AccountsPage() {
   const { data, error, loading, reload } = useApi<{ items: Account[] }>("/api/contas");
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("nova") === "1") {
+      setOpen(true);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
   return (
     <>
       <PageHeading
