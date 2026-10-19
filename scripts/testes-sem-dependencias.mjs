@@ -14,7 +14,8 @@ for (const module of ['typescript','/opt/nvm/versions/node/v22.16.0/lib/node_mod
 if (!ts) { console.error('TypeScript não encontrado. Instale as dependências e rode npm test.');process.exit(2); }
 const root=resolve('.');const dir=mkdtempSync(join(tmpdir(),'financeiro-p04-tests-'));
 const sources=[...['money','split-calculation','control-math','governance-rules','report-math','dashboard-trend'].map(x=>`src/lib/${x}.ts`),
-  ...['money','split-calculation','control-math','governance-rules','report-math','dashboard-trend'].map(x=>`tests/${x}.test.ts`)];
+  'src/lib/financeiro/constants.ts',
+  ...['money','split-calculation','control-math','governance-rules','report-math','dashboard-trend','finance-ui-constants'].map(x=>`tests/${x}.test.ts`)];
 try {
  for(const file of sources){const input=readFileSync(join(root,file),'utf8');
   const output=ts.transpileModule(input,{fileName:file,compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;

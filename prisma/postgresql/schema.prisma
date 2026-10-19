@@ -488,3 +488,83 @@ model AlertAcknowledgement {
   @@unique([key,userId])
   @@index([userId,createdAt])
 }
+
+
+// SOUL Contabilidade: módulo isolado; NÃO altera o razão operacional.
+model AccountingAccount {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  type String // ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE
+  parentId String?
+  postable Boolean @default(true)
+  active Boolean @default(true)
+  postings AccountingPosting[]
+  createdAt DateTime @default(now())
+}
+model AccountingPeriod {
+  id String @id @default(cuid())
+  name String @unique // AAAA-MM
+  startAt DateTime
+  endAt DateTime
+  status String @default("OPEN") // OPEN, CLOSED
+  journals AccountingJournal[]
+  createdAt DateTime @default(now())
+}
+model AccountingRule {
+  id String @id @default(cuid())
+  eventType String
+  version Int
+  debitAccountId String
+  creditAccountId String
+  active Boolean @default(false)
+  validFrom DateTime
+  validUntil DateTime?
+  createdAt DateTime @default(now())
+  @@unique([eventType, version])
+  @@index([eventType, active])
+}
+model AccountingBusinessEvent {
+  id String @id @default(cuid())
+  externalKey String @unique
+  type String
+  source String
+  sourceId String
+  eventId String?
+  producerId String?
+  amountCents BigInt
+  occurredAt DateTime
+  payloadJson String @default("{}")
+  status String @default("PENDING") // PENDING, POSTED, ERROR
+  journal AccountingJournal?
+  createdAt DateTime @default(now())
+  @@index([type, status])
+}
+model AccountingJournal {
+  id String @id @default(cuid())
+  businessEventId String @unique
+  businessEvent AccountingBusinessEvent @relation(fields:[businessEventId],references:[id])
+  periodId String
+  period AccountingPeriod @relation(fields:[periodId],references:[id])
+  description String
+  ruleVersion Int
+  occurredAt DateTime
+  reversalOfId String?
+  postings AccountingPosting[]
+  createdAt DateTime @default(now())
+  @@index([periodId, occurredAt])
+}
+model AccountingPosting {
+  id String @id @default(cuid())
+  journalId String
+  journal AccountingJournal @relation(fields:[journalId],references:[id])
+  accountId String
+  account AccountingAccount @relation(fields:[accountId],references:[id])
+  debitCents BigInt @default(0)
+  creditCents BigInt @default(0)
+  eventId String?
+  producerId String?
+  @@index([accountId])
+  @@index([eventId])
+}
+

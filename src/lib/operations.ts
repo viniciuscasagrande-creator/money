@@ -42,28 +42,89 @@ export async function registerSale(raw: {
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
+import {
+  evaluateEventPolicy,
+  loadEventLockPolicy,
+  loadEventRetentions,
+  loadEventTransfers,
+  loadProducerFinancialPolicy,
+  sumActiveRetentionsCents,
+  sumEventTransferMovementsCents
+} from "@/lib/payout-locks";
+
 type Db = Prisma.TransactionClient;
 const reservedStatuses: PayoutStatus[] = ["REQUESTED", "APPROVED", "PRODUCER_ACCEPTED", "READY_TO_SETTLE", "SETTLED"];
 export async function eventAvailability(tx: Db, eventId: string) {
-  const [total, settled, reserved, exposure] = await Promise.all([
-    tx.financialSale.aggregate({ where: { eventId }, _sum: { producerNetCents: true } }),
+  const [total, settled, reserved, exposure, retentions, lockPolicy, allTransfers] = await Promise.all([
+    tx.financialSale.aggregate({ where: { eventId }, _sum: { producerNetCents: true, grossCents: true, quantity: true } }),
     tx.financialSale.aggregate({ where: { eventId, status: "SETTLED" }, _sum: { producerNetCents: true } }),
     tx.payoutRequest.aggregate({ where: { eventId, status: { in: reservedStatuses } }, _sum: { amountCents: true } }),
-    tx.riskCase.groupBy({ by: ["status"], where: { eventId, status: { in: ["OPEN", "CONFIRMED"] } }, _sum: { exposureCents: true } })
+    tx.riskCase.groupBy({ by: ["status"], where: { eventId, status: { in: ["OPEN", "CONFIRMED"] } }, _sum: { exposureCents: true } }),
+    loadEventRetentions(tx, eventId),
+    loadEventLockPolicy(tx, eventId),
+    loadEventTransfers(tx)
   ]);
-  return adjustedAvailability({
+  const mandatoryRetentions = sumActiveRetentionsCents(retentions);
+  const transferMovements = sumEventTransferMovementsCents(allTransfers, eventId);
+  const totalCommitted = (reserved._sum.amountCents ?? 0n) + transferMovements.reservedOrExecutedOutCents;
+  const openExposure = exposure.find(r => r.status === "OPEN")?._sum.exposureCents ?? 0n;
+  const confirmedExposure = exposure.find(r => r.status === "CONFIRMED")?._sum.exposureCents ?? 0n;
+  const base = adjustedAvailability({
     total: total._sum.producerNetCents ?? 0n,
     settled: settled._sum.producerNetCents ?? 0n,
-    committed: reserved._sum.amountCents ?? 0n,
-    openExposure: exposure.find(r => r.status === "OPEN")?._sum.exposureCents ?? 0n,
-    confirmedExposure: exposure.find(r => r.status === "CONFIRMED")?._sum.exposureCents ?? 0n
+    committed: totalCommitted,
+    openExposure,
+    confirmedExposure,
+    mandatoryRetentions
   });
+  const lockEvaluation = evaluateEventPolicy({
+    policy: lockPolicy,
+    retentions,
+    settledProducerCents: settled._sum.producerNetCents ?? 0n,
+    totalProducerNetCents: total._sum.producerNetCents ?? 0n,
+    grossSoldCents: total._sum.grossCents ?? 0n,
+    soldTicketsCount: total._sum.quantity ?? 0,
+    openRiskCents: openExposure,
+    confirmedLossCents: confirmedExposure,
+    committedPayoutsCents: totalCommitted
+  });
+  const effectiveRepasseCents = lockPolicy.active ? lockEvaluation.maxNewRequestCents : base.repasseCents;
+  const internalPositionCents = (base.settledCents > totalCommitted ? base.settledCents - totalCommitted : 0n) + transferMovements.executedInCents;
+  return {
+    ...base,
+    repasseCents: effectiveRepasseCents,
+    transferOutCents: transferMovements.reservedOrExecutedOutCents,
+    transferInCents: transferMovements.executedInCents,
+    internalPositionCents,
+    outgoingTransferCount: transferMovements.outgoingCount,
+    retentions,
+    lockPolicy,
+    lockEvaluation
+  };
 }
 export const eventAvailabilityDTO = (id: string, name: string, a: Awaited<ReturnType<typeof eventAvailability>>) => ({
   id, name, totalCents: a.totalCents.toString(), settledCents: a.settledCents.toString(),
   committedCents: a.committedCents.toString(), blockedCents: a.blockedCents.toString(),
+  retainedCents: a.retainedCents.toString(),
+  transferOutCents: a.transferOutCents.toString(),
+  transferInCents: a.transferInCents.toString(),
+  internalPositionCents: a.internalPositionCents.toString(),
   confirmedLossCents: a.confirmedLossCents.toString(), repasseCents: a.repasseCents.toString(),
-  antecipacaoCents: a.antecipacaoCents.toString()
+  antecipacaoCents: a.antecipacaoCents.toString(),
+  retentions: a.retentions.filter(r => r.status === "ACTIVE").map(r => ({
+    id: r.id, category: r.category, description: r.description, beneficiary: r.beneficiary,
+    dueDate: r.dueDate, amountCents: r.amountCents, status: r.status
+  })),
+  lockSummary: {
+    policyActive: a.lockPolicy.active,
+    soldPercentBps: a.lockEvaluation.soldPercentBps,
+    tierLabel: a.lockEvaluation.tierLabel,
+    releaseLimitBps: a.lockEvaluation.releaseLimitBps,
+    calculationBase: a.lockEvaluation.calculationBase,
+    eligible: a.lockEvaluation.eligible,
+    blockingReasons: a.lockEvaluation.blockingReasons,
+    conditionalWarnings: a.lockEvaluation.conditionalWarnings
+  }
 });
 
 export async function createPayout(raw: { eventId: string; type: PayoutType; amountCents: string }, user: SessionUser) {
@@ -72,7 +133,17 @@ export async function createPayout(raw: { eventId: string; type: PayoutType; amo
     const event = await tx.event.findUnique({ where: { id: raw.eventId }, include: { producer: { select: { active: true } } } });
     if (!event || !event.producer.active) return ruleError("Evento indisponível.");
     if (user.role === "PRODUCER" && event.producerId !== user.producerId) return ruleError("Evento não pertence ao produtor autenticado.");
+    const producerPolicy = await loadProducerFinancialPolicy(tx, event.producerId);
+    if (raw.type === "REPASSE" && !producerPolicy.allowPayoutRequests) {
+      return ruleError("Permissão bloqueada: solicitação de repasses está desabilitada na política deste produtor.");
+    }
+    if (raw.type === "ANTECIPACAO" && !producerPolicy.allowAdvanceRequests) {
+      return ruleError("Permissão bloqueada: solicitação de antecipações está desabilitada na política deste produtor.");
+    }
     const capacity = await eventAvailability(tx, event.id);
+    if (raw.type === "REPASSE" && capacity.lockPolicy.active && capacity.lockEvaluation.blockingReasons.length > 0) {
+      return ruleError(capacity.lockEvaluation.blockingReasons[0]);
+    }
     const max = raw.type === "REPASSE" ? capacity.repasseCents : capacity.antecipacaoCents;
     if (amountCents > max) return ruleError("Valor superior ao limite apurado para esta operação.");
     const payout = await tx.payoutRequest.create({ data: {
@@ -95,6 +166,15 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
     const audit = async (name: string, summary: string) => tx.auditLog.create({ data: { actorId: user.id, entity: "PayoutRequest", entityId: id, action: name, summary } });
     let update: Prisma.PayoutRequestUncheckedUpdateManyInput;
     let expected: PayoutStatus;
+    if (action === "APPROVE" || action === "SETTLE") {
+      const lockPolicy = await loadEventLockPolicy(tx, p.eventId);
+      if (lockPolicy.active) {
+        if (lockPolicy.manualBlockActive) return ruleError(`Trava 20: Bloqueio manual justificado (${lockPolicy.manualBlockReason || "Auditoria interna"}).`);
+        if (!lockPolicy.contractSigned) return ruleError("Trava 07: Contrato do evento pendente de assinatura/vigência.");
+        if (!lockPolicy.producerDocsValid) return ruleError("Trava 08: Documentação cadastral/bancária do produtor pendente.");
+        if (lockPolicy.overdueExpensesActive) return ruleError("Trava 10: Existem despesas críticas vencidas vinculadas ao evento.");
+      }
+    }
     if (action === "APPROVE") {
       if (!internal || p.status !== "REQUESTED") return ruleError("Somente o Financeiro pode aprovar solicitações pendentes.");
       await ensureApprovalAuthority(tx, user, p.type, p.amountCents);

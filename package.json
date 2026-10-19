@@ -1,6 +1,6 @@
 {
   "name": "erp-financeiro-fintech-premium",
-  "version": "4.1.0",
+  "version": "5.0.0",
   "private": true,
   "scripts": {
     "predev": "node scripts/prepare-prisma.mjs",
@@ -17,8 +17,10 @@
     "bootstrap": "tsx scripts/bootstrap.ts",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:homologacao": "node scripts/homologacao-integrada.mjs",
+    "test:homologacao:pg": "node scripts/homologacao-postgres.mjs",
     "test:static": "node scripts/validacao-estatica.mjs",
     "test:unit:isolado": "node scripts/testes-sem-dependencias.mjs",
+    "test:ui:static": "node scripts/verificar-ui-rotas.mjs",
     "deploy:build": "node scripts/deploy-build.mjs",
     "vercel-build": "node scripts/deploy-build.mjs"
   },

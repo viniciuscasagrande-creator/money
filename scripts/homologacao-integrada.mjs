@@ -7,10 +7,12 @@ import assert from 'node:assert/strict';
 
 const base = process.env.HOMOLOG_BASE_URL;
 const db = process.env.DATABASE_URL || '';
+const isTempSqlite = /^file:\.\/homologacao-[a-f0-9-]{30,}\.db$/.test(db);
+const isTempPgSchema = /^postgres(ql)?:\/\/.+schema=homolog_v5_[a-z0-9_]+/i.test(db);
 if (process.env.ISOLATED_HOMOLOGATION !== 'SIM'
   || !base || !/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base)
-  || !/^file:\.\/homologacao-[a-f0-9-]{30,}\.db$/.test(db)) {
-  console.error('BLOQUEADO: exige ISOLATED_HOMOLOGATION=SIM, URL local e banco SQLite TEMPORÁRIO homologacao-UUID.db.');
+  || (!isTempSqlite && !isTempPgSchema)) {
+  console.error('BLOQUEADO: exige ISOLATED_HOMOLOGATION=SIM, URL local e banco SQLite TEMPORÁRIO ou schema PostgreSQL isolado (homolog_v5_*).');
   process.exit(2);
 }
 const email = process.env.HOMOLOG_ADMIN_EMAIL;
@@ -239,8 +241,246 @@ try {
       assert.ok(actions.has(actionName), `Auditoria sem ${actionName}`);
     }
   });
-  console.log(`\nAPROVADO: ${checks.length} grupos de validação. Base exclusiva: ${db}; nenhum acesso bancário externo realizado.`);
+
+  // Pacote 05 (SOUL v5.0) — Central de Módulos (/api/sistema/modulos), Consultas Individuais (/api/registros/[tipo]/[id]) e Dashboard Trend
+  const modAdmin = expectStatus(await req('/api/sistema/modulos', 'GET', undefined, admin), 200, 'Catálogo de módulos Admin');
+  const modFinance = expectStatus(await req('/api/sistema/modulos', 'GET', undefined, finance), 200, 'Catálogo de módulos Financeiro');
+  const modProducerA = expectStatus(await req('/api/sistema/modulos', 'GET', undefined, a), 200, 'Catálogo de módulos Produtor A');
+  check('Central de Módulos (/api/sistema/modulos) respeita perfil Admin (20), Financeiro (16) e Produtor (6)', () => {
+    assert.equal(modAdmin.items.length, 20);
+    assert.equal(modFinance.items.length, 16);
+    assert.ok(modProducerA.items.every(m => !m.internalOnly && !m.adminOnly));
+    assert.ok(!modProducerA.items.some(m => ['contas', 'gateways', 'taxas', 'vendas', 'conciliacao', 'ocorrencias', 'governanca'].includes(m.id)));
+  });
+
+  const detailPairs = [
+    ['titulo', venda.receivableTitleId],
+    ['repasse', payout.id],
+    ['venda', venda.id],
+    ['ocorrencia', confirmedRisk.id],
+    ['contrato', contract.id],
+    ['orcamento', budget.id],
+    ['extrato', statement.id],
+  ];
+  for (const [tipo, id] of detailPairs) {
+    const d = expectStatus(await req(`/api/registros/${tipo}/${id}`, 'GET', undefined, finance), 200, `Detalhe ${tipo}`);
+    check(`Consulta individual /api/registros/${tipo}/:id retorna campos estruturados para Financeiro Interno`, () => {
+      assert.ok(d.title && Array.isArray(d.fields) && d.fields.length >= 4);
+    });
+  }
+
+  const prodOwnRepasse = expectStatus(await req(`/api/registros/repasse/${payout.id}`, 'GET', undefined, a), 200, 'Produtor A consulta próprio repasse');
+  check('Produtor A consulta detalhes do próprio repasse sem receber campos internos de alçada', () => {
+    assert.ok(Array.isArray(prodOwnRepasse.fields));
+    assert.ok(!prodOwnRepasse.fields.some(f => f.label === 'Aprovador' || f.label === 'Referência da baixa externa'));
+  });
+
+  const prodInternalTitle = await req(`/api/registros/titulo/${venda.receivableTitleId}`, 'GET', undefined, a);
+  check('Produtor A não consulta título interno de liquidação da adquirente (HTTP 404)', () => assert.equal(prodInternalTitle.status, 404));
+
+  const prodBCrossRepasse = await req(`/api/registros/repasse/${payout.id}`, 'GET', undefined, b);
+  check('Produtor B não consulta repasse do Produtor A (HTTP 404)', () => assert.equal(prodBCrossRepasse.status, 404));
+
+  for (const [tipo, id] of [['venda', venda.id], ['ocorrencia', confirmedRisk.id], ['contrato', contract.id], ['orcamento', budget.id], ['extrato', statement.id]]) {
+    const res = await req(`/api/registros/${tipo}/${id}`, 'GET', undefined, a);
+    check(`Produtor A bloqueado em consulta interna /api/registros/${tipo}/:id (HTTP 403)`, () => assert.equal(res.status, 403));
+  }
+
+  const invalidType = await req('/api/registros/inexistente/123', 'GET', undefined, admin);
+  check('Tipo inválido em /api/registros retorna HTTP 400', () => assert.equal(invalidType.status, 400));
+
+  const dashFinance = expectStatus(await req('/api/dashboard', 'GET', undefined, finance), 200, 'Dashboard Financeiro Interno');
+  const dashProducer = expectStatus(await req('/api/dashboard', 'GET', undefined, a), 200, 'Dashboard Produtor A');
+  check('Dashboard retorna série histórica real de 6 meses (trend) e segrega dados bancários do Produtor', () => {
+    assert.equal(dashFinance.metrics.saldoBancarioCents, '2500');
+    assert.equal(dashFinance.trend.length, 6);
+    const currentMonth = dashFinance.trend[5];
+    assert.ok(currentMonth && currentMonth.receivedCents === '19500');
+    assert.equal(dashProducer.metrics.saldoBancarioCents, null);
+    assert.equal(dashProducer.metrics.contasBancarias, null);
+    assert.equal(dashProducer.informationalOnly, true);
+    assert.equal(dashProducer.trend.length, 6);
+  });
+
+  // --- Pacote 05+: Central de Travas (20 Travas), Retenções Obrigatórias (ECAD), Transferências entre Eventos e Spread/Advanced/Rebate ---
+  const eventA2 = await create('/api/admin/eventos', { name: `Evento A2 ${unique}`, producerId: producerA.id, status: 'ACTIVE' });
+  await expectStatus(await req('/api/financeiro/taxas', 'POST', { eventId: eventA2.id, mode: 'PERCENT_BPS', value: '1000', producerPaysMdr: true }, finance), 200, 'Taxa do evento A2');
+  const vendaA2 = await create('/api/financeiro/vendas', {
+    externalReference: `${unique}-VENDA-A2`, eventId: eventA2.id, mdrRuleId: regra.id, unitPriceCents: '10000', quantity: 1
+  }, finance);
+  expectStatus(await req(`/api/titulos/${vendaA2.receivableTitleId}/liquidar`, 'POST', { bankAccountId: conta.id }, finance), 200, 'Liquidar venda A2');
+
+  const travasGet = expectStatus(await req('/api/repasses/travas', 'GET', undefined, finance), 200, 'Catálogo de 20 travas e faixas progressivas');
+  check('Central de Travas (/api/repasses/travas) retorna 20 travas, 7 faixas progressivas e 6 categorias de retenção', () => {
+    assert.equal(travasGet.catalog.length, 20);
+    assert.equal(travasGet.progressiveTiers.length, 7);
+    assert.ok(travasGet.retentionCategories.ECAD);
+  });
+
+  const prodForbiddenRetention = await req('/api/repasses/travas', 'POST', {
+    kind: 'RETENTION_CREATE', eventId: eventA2.id, category: 'ECAD',
+    description: 'Tentativa indevida', beneficiary: 'ECAD', documentRef: 'DOC-1', ownerName: 'Prod', amountCents: '1000'
+  }, a);
+  check('Produtor é bloqueado ao tentar cadastrar ou alterar retenções obrigatórias e travas (HTTP 403)', () => {
+    assert.equal(prodForbiddenRetention.status, 403);
+  });
+
+  const createdRetention = expectStatus(await req('/api/repasses/travas', 'POST', {
+    kind: 'RETENTION_CREATE', eventId: eventA2.id, category: 'ECAD',
+    description: 'Retenção obrigatória ECAD show principal', beneficiary: 'ECAD Nacional',
+    documentRef: 'ECAD-2026-001', ownerName: 'Financeiro SOUL', dueDate: '2026-12-15', amountCents: '2000'
+  }, finance), 201, 'Criar retenção obrigatória ECAD');
+  const repassesAfterRetention = expectStatus(await req('/api/repasses', 'GET', undefined, a), 200, 'Saldo do Produtor A após retenção ECAD');
+  check('Retenção obrigatória ECAD reduz imediatamente o saldo disponível para repasse e é visível ao Produtor', () => {
+    assert.ok(createdRetention.id);
+    const evA2 = repassesAfterRetention.events.find(e => e.id === eventA2.id);
+    assert.equal(evA2.retainedCents, '2000');
+    assert.equal(evA2.repasseCents, '6750'); // 8750 liquidado menos 2000 ECAD = 6750 disponível
+  });
+
+  const transferBeforeEnable = await req('/api/repasses/travas', 'POST', {
+    kind: 'TRANSFER_REQUEST', sourceEventId: eventA2.id, targetEventId: eventA.id, amountCents: '3000', reason: 'Cobertura de despesas Evento A'
+  }, a);
+  check('Transferência entre eventos é bloqueada enquanto o Financeiro SOUL não habilitar a permissão do produtor', () => {
+    assert.equal(transferBeforeEnable.status, 409);
+    assert.match(transferBeforeEnable.data.error, /Permissão desabilitada/i);
+  });
+
+  expectStatus(await req('/api/repasses/travas', 'POST', {
+    kind: 'PRODUCER_POLICY_SAVE', producerId: producerA.id,
+    allowPayoutRequests: true, allowAdvanceRequests: true, allowEventTransfers: true,
+    maxSingleTransferCents: '5000', maxTransferPercentBps: 10000, maxTransfersPerEvent: 5, approvalPolicy: 'FINANCE_SOUL'
+  }, finance), 201, 'Habilitar transferências entre eventos para Produtor A');
+  check('Financeiro SOUL habilita transferência entre eventos na Central de Políticas por Produtor', () => {});
+
+  const crossProducerTransfer = await req('/api/repasses/travas', 'POST', {
+    kind: 'TRANSFER_REQUEST', sourceEventId: eventA2.id, targetEventId: eventB.id, amountCents: '1000', reason: 'Tentativa entre produtores distintos'
+  }, a);
+  check('Transferência cruzada entre produtores distintos (Produtor A -> Produtor B) é estritamente bloqueada', () => {
+    assert.equal(crossProducerTransfer.status, 409);
+    assert.match(crossProducerTransfer.data.error, /produtores distintos/i);
+  });
+
+  const transferReq = expectStatus(await req('/api/repasses/travas', 'POST', {
+    kind: 'TRANSFER_REQUEST', sourceEventId: eventA2.id, targetEventId: eventA.id, amountCents: '3000', reason: 'Cobertura de locação Evento A'
+  }, a), 201, 'Solicitar transferência Evento A2 -> Evento A');
+  expectStatus(await req('/api/repasses/travas', 'POST', {
+    kind: 'TRANSFER_ACTION', transferId: transferReq.id, action: 'APPROVE'
+  }, finance), 201, 'Financeiro SOUL aprova transferência');
+  expectStatus(await req('/api/repasses/travas', 'POST', {
+    kind: 'TRANSFER_ACTION', transferId: transferReq.id, action: 'PRODUCER_ACCEPT'
+  }, a), 201, 'Produtor A confirma aceite da transferência');
+  expectStatus(await req('/api/repasses/travas', 'POST', {
+    kind: 'TRANSFER_ACTION', transferId: transferReq.id, action: 'EXECUTE'
+  }, finance), 201, 'Financeiro SOUL executa transferência atômica');
+  const repassesAfterTransfer = expectStatus(await req('/api/repasses', 'GET', undefined, a), 200, 'Posições após transferência atômica');
+  check('Transferência atômica entre eventos do mesmo produtor debita origem, credita posição interna do destino e não infla teto de repasse externo', () => {
+    const evA2 = repassesAfterTransfer.events.find(e => e.id === eventA2.id);
+    const evA1 = repassesAfterTransfer.events.find(e => e.id === eventA.id);
+    assert.equal(evA2.transferOutCents, '3000');
+    assert.equal(evA2.repasseCents, '3750'); // 6750 menos 3000 transferido = 3750
+    assert.equal(evA1.transferInCents, '3000');
+    assert.equal(evA1.internalPositionCents, '3300'); // 300 anteriores + 3000 recebidos por transferência
+    assert.equal(evA1.repasseCents, '300'); // Anti-contorno: crédito recebido por transferência não infla teto externo de repasse
+  });
+
+  expectStatus(await req('/api/repasses/travas', 'POST', {
+    kind: 'LOCK_POLICY_SAVE', eventId: eventA2.id, active: true,
+    capacityTickets: 100, soldTicketsOverride: 20, salesTriggerBps: 5000,
+    calculationBase: 'PRODUCER_NET_AFTER_RETENTIONS', contractSigned: true,
+    producerDocsValid: true, reconciliationApproved: true, overdueExpensesActive: false, manualBlockActive: false
+  }, finance), 201, 'Ativar trava de gatilho de 50% de ingressos vendidos');
+  const blockedByTrigger = await req('/api/repasses', 'POST', { eventId: eventA2.id, type: 'REPASSE', amountCents: '500' }, a);
+  check('Trava 01 bloqueia solicitação de repasse quando percentual de ingressos vendidos (20%) está abaixo do gatilho (50%)', () => {
+    assert.equal(blockedByTrigger.status, 409);
+    assert.match(blockedByTrigger.data.error, /Trava 01/i);
+  });
+
+  const savedFeeExt = expectStatus(await req('/api/repasses/travas', 'POST', {
+    kind: 'FEE_EXTENSION_SAVE', eventId: eventA2.id, channel: 'POS', costBearer: 'BUYER',
+    spreadBps: 150, advancedBps: 100, rebateBps: 50, installmentInterestBps: 800
+  }, finance), 201, 'Configurar Canal POS PagSeguro, Spread, Advanced e Rebate');
+  check('Configuração de Canal POS PagSeguro, Spread, Advanced e Rebate é persistida e auditada', () => {
+    assert.equal(savedFeeExt.channel, 'POS');
+  });
+
+  // 11. Módulo de Contabilidade SOUL v4.4 + Múltiplas Partidas + Plano de Contas Padrão + DRE
+  const seededChart = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
+    kind: 'seed_chart'
+  }, admin), 201, 'Inicializar Plano de Contas Padrão SOUL (28 contas)');
+  expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
+    kind: 'tax_config', issBps: 200, pisBps: 65, cofinsBps: 300
+  }, admin), 201, 'Parametrizar alíquotas fiscais (ISS, PIS, COFINS)');
+  check('Plano de Contas Padrão SOUL (28 contas hierárquicas M1) e Tributação Parametrizável (M7) inicializados com sucesso', () => {
+    assert.equal(seededChart.createdCount, 28);
+  });
+
+  const accReceivable = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
+    kind: 'account', code: '1.1.02.001', name: 'Adquirentes a Receber', type: 'ASSET', postable: true
+  }, admin), 201, 'Criar conta contábil Ativo Adquirentes');
+  const accMdr = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
+    kind: 'account', code: '4.1.01.001', name: 'Despesa MDR Adquirente', type: 'EXPENSE', postable: true
+  }, admin), 201, 'Criar conta contábil Despesa MDR');
+  const accSoulRev = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
+    kind: 'account', code: '3.1.01.001', name: 'Receita Taxa e Spread SOUL', type: 'REVENUE', postable: true
+  }, admin), 201, 'Criar conta contábil Receita SOUL');
+  const accProducerPayable = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
+    kind: 'account', code: '2.1.01.001', name: 'Obrigações com Produtores', type: 'LIABILITY', postable: true
+  }, admin), 201, 'Criar conta contábil Passivo Produtores');
+  const accPeriod = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
+    kind: 'period', name: '2026-10'
+  }, admin), 201, 'Criar período contábil 2026-10');
+  const accRule = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
+    kind: 'rule', eventType: 'TICKET_SALE_CAPTURED', version: 1,
+    debitAccountId: accReceivable.id, creditAccountId: accProducerPayable.id,
+    validFrom: '2026-01-01T00:00:00.000Z'
+  }, admin), 201, 'Criar regra contábil v1');
+  expectStatus(await req('/api/contabilidade/regras', 'PATCH', {
+    ruleId: accRule.id, active: true
+  }, admin), 200, 'Ativar regra contábil v1');
+
+  const bizEvt = expectStatus(await req('/api/contabilidade/eventos', 'POST', {
+    externalKey: 'EVT-SALE-MULTI-001', type: 'TICKET_SALE_CAPTURED', source: 'ONLINE',
+    sourceId: 'SALE-001', eventId: eventA2.id, amountCents: '11500', occurredAt: '2026-10-15T12:00:00.000Z'
+  }, finance), 201, 'Registrar evento de negócio para contabilização');
+
+  const processedJournal = expectStatus(await req('/api/contabilidade/processar', 'POST', {
+    businessEventId: bizEvt.id,
+    ruleId: accRule.id,
+    customPostings: [
+      { accountId: accReceivable.id, debitCents: '10945', creditCents: '0' },
+      { accountId: accMdr.id, debitCents: '555', creditCents: '0' },
+      { accountId: accSoulRev.id, debitCents: '0', creditCents: '1500' },
+      { accountId: accProducerPayable.id, debitCents: '0', creditCents: '10000' }
+    ]
+  }, admin), 200, 'Processar lançamento contábil de múltiplas partidas');
+
+  const trialBalance = expectStatus(await req('/api/contabilidade?visao=balancete&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar balancete 2026-10');
+  const dreReport = expectStatus(await req('/api/contabilidade?visao=dre&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar DRE 2026-10');
+  const passivosReport = expectStatus(await req('/api/contabilidade?visao=passivos&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar Passivos 2026-10');
+  const closedPeriod = expectStatus(await req('/api/contabilidade/periodos', 'PATCH', {
+    periodId: accPeriod.id, status: 'CLOSED'
+  }, admin), 200, 'Fechar período contábil 2026-10');
+
+  check('Motor Contábil processa múltiplas partidas balanceadas (Ativo + MDR = Receita SOUL + Passivo Produtor), gera Balancete (D=C), DRE, Passivos e fecha competência sem alterar saldo operacional', () => {
+    assert.equal(processedJournal.duplicate, false);
+    assert.equal(processedJournal.postingsCount, 4);
+    assert.equal(trialBalance.totalDebitsCents, '11500');
+    assert.equal(trialBalance.totalCreditsCents, '11500');
+    assert.equal(trialBalance.balanced, true);
+    assert.equal(dreReport.receitaBrutaCents, '1500');
+    assert.equal(dreReport.despesasCents, '555');
+    assert.equal(dreReport.resultadoCents, '945');
+    assert.equal(passivosReport.items[0].saldoCredorCents, '10000');
+    assert.equal(closedPeriod.status, 'CLOSED');
+  });
+
+  console.log(`\nAPROVADO: ${checks.length} grupos de validação. Base exclusiva: ${db.replace(/:[^:@/]+@/, ':***@')}; nenhum acesso bancário externo realizado.`);
 } catch (e) {
   console.error(`\nREPROVADO após ${checks.length} grupos:`, e.stack || e);
   process.exitCode = 1;
 }
+
+
+
+

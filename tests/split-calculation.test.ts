@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { saleBreakdown, percentageCents, nonnegativeCents } from "../src/lib/split-calculation";
+import { saleBreakdown, percentageCents, nonnegativeCents, simulateInstallmentMatrix, extendedSaleBreakdown } from "../src/lib/split-calculation";
 
 test("calcula split conservando o valor líquido da adquirente", () => {
   const result = saleBreakdown({ unitPriceCents: 10000n, quantity: 2, feeMode: "PERCENT_BPS", feeValue: 1000n,
@@ -39,3 +39,27 @@ test("impede cobrança integral e MDR inviável", () => {
   assert.throws(() => saleBreakdown({ ...base, mdrRateBps: 10000 }));
   assert.throws(() => saleBreakdown({ ...base, quantity: 0 }));
 });
+test("simulador de matriz de parcelamento 12x distingue absorção pelo comprador, produtor e SOUL", () => {
+  const buyerSim = simulateInstallmentMatrix({ ticketPriceCents: 20000n, totalChargeBps: 800, costBearer: "BUYER", installments: 12 });
+  assert.equal(buyerSim.chargeCents, 1600n);
+  assert.equal(buyerSim.buyerTotalCents, 21600n);
+  assert.equal(buyerSim.installmentValueCents, 1800n);
+  const prodSim = simulateInstallmentMatrix({ ticketPriceCents: 20000n, totalChargeBps: 800, costBearer: "PRODUCER", installments: 12 });
+  assert.equal(prodSim.buyerTotalCents, 20000n);
+  assert.equal(prodSim.producerAbsorbedCents, 1600n);
+});
+test("memória de cálculo completa inclui canal POS/Online, Spread, Advanced e Rebate", () => {
+  const ext = extendedSaleBreakdown({
+    unitPriceCents: 20000n, quantity: 1, feeMode: "PERCENT_BPS", feeValue: 1000n,
+    mdrRateBps: 250, mdrFixedCents: 0n, producerPaysMdr: true,
+    channel: "POS", installments: 6, installmentInterestBps: 400, costBearer: "PRODUCER",
+    spreadBps: 100, advancedBps: 50, rebateBps: 2000
+  });
+  assert.equal(ext.channel, "POS");
+  assert.equal(ext.spreadCents, 200n);
+  assert.equal(ext.advancedCents, 100n);
+  assert.equal(ext.rebateCents, 100n);
+  assert.equal(ext.memory.channel, "POS");
+  assert.equal(ext.memory.soulAdminFeeCents, "2000");
+});
+

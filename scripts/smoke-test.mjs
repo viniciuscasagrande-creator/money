@@ -1,4 +1,4 @@
-/** Teste de integração não destrutivo contra servidor local já iniciado. */
+/** Teste de integração não destrutivo contra servidor local ou em produção. */
 const base = process.env.BASE_URL || "http://localhost:3000";
 const email = process.env.TEST_EMAIL || "admin@financeiro.local";
 const password = process.env.TEST_PASSWORD || "Admin@Financeiro2026!";
@@ -9,6 +9,7 @@ const cookie = login.headers.get("set-cookie")?.split(";")[0];
 if (!cookie) throw new Error("Cookie de sessão não recebido.");
 let count = 0;
 const endpoints = [
+  "/api/sistema/modulos",
   "/api/dashboard",
   "/api/recebimentos",
   "/api/pagamentos",

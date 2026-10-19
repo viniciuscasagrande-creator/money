@@ -6,7 +6,7 @@ import {
   ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, BarChart3, Bell,
   BookOpenCheck, CalendarRange, ChevronDown, ChevronLeft, ChevronRight,
   ClipboardList, CreditCard, FileSignature, FileSpreadsheet, GitCompareArrows,
-  Landmark, Layers3, LayoutDashboard, LogOut, Menu, Percent, Receipt, Search,
+  Grid2X2, Landmark, Layers3, LayoutDashboard, LogOut, Menu, Percent, Receipt, Search,
   Settings2, ShieldAlert, ShieldCheck, Users, X,
   type LucideIcon
 } from "lucide-react";
@@ -20,6 +20,7 @@ type MenuGroup = { title: string; items: MenuItem[] };
 
 const groups: MenuGroup[] = [
   { title: "VISÃO GERAL", items: [
+    { label: "Central de módulos", url: "/modulos", icon: Grid2X2 },
     { label: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
     { label: "Relatórios", url: "/relatorios", icon: BarChart3, capability: "REPORT_VIEW" },
     { label: "Alertas e pendências", url: "/alertas", icon: Bell, internal: true, capability: "ALERT_VIEW" }
@@ -57,7 +58,7 @@ const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(p =>
 function Brand({ compact = false }: { compact?: boolean }) {
   return <div className="flex min-w-0 items-center gap-3">
     <div className="fintech-brand-mark" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3.5 16.5 9 7.5l4.4 6L20.5 4.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M15.5 4.5h5v5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-    {!compact && <div className="min-w-0"><p className="text-[17px] font-bold tracking-[-.045em] text-white">finance<span className="text-[#ff746b]">.</span></p><p className="text-[9px] font-semibold uppercase tracking-[.18em] text-[#929398]">ERP FINANCEIRO</p></div>}
+    {!compact && <div className="min-w-0"><p className="text-[17px] font-bold tracking-[-.045em] text-white">SOUL<span className="text-[#ff746b]">.</span></p><p className="text-[9px] font-semibold uppercase tracking-[.18em] text-[#929398]">ERP FINANCEIRO</p></div>}
   </div>;
 }
 
@@ -247,7 +248,7 @@ export function WorkspaceShell({ user, children, capabilities }: { user: User; c
         </div>
       </header>
       <main className="fintech-main mx-auto max-w-[1660px] px-4 pb-14 pt-7 sm:px-7 sm:pt-9 xl:px-10">{children}</main>
-      <footer className="mx-auto flex max-w-[1660px] flex-wrap items-center justify-between gap-2 px-4 pb-6 text-[11px] text-[#a5a1a1] sm:px-7 xl:px-10"><span>ERP Financeiro · identidade Fintech Premium</span><span>Dados conforme suas permissões</span></footer>
+      <footer className="mx-auto flex max-w-[1660px] flex-wrap items-center justify-between gap-2 px-4 pb-6 text-[11px] text-[#a5a1a1] sm:px-7 xl:px-10"><span>SOUL Financeiro · Fintech Premium</span><span>Dados conforme suas permissões</span></footer>
     </div>
 
     {searchOpen && <div role="presentation" className="fixed inset-0 z-[100] flex justify-center bg-[#1e1b22]/65 px-3 pt-[14vh] backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) setSearchOpen(false); }}>
