@@ -16,8 +16,8 @@ export function LoginForm() {
     event.preventDefault(); setLoading(true); setError("");
     try {
       const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Não foi possível entrar.");
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Não foi possível entrar (HTTP ${response.status}).`);
       router.replace("/dashboard"); router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Erro de autenticação."); }
     finally { setLoading(false); }
