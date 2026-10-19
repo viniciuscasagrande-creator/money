@@ -5,8 +5,7 @@
   "scripts": {
     "predev": "node scripts/prepare-prisma.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/prepare-prisma.mjs",
-    "build": "next build",
+    "build": "node scripts/deploy-build.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",

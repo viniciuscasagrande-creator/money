@@ -31,17 +31,34 @@ async function ensureDefaultAdmin() {
 }
 
 async function main() {
-  const dbUrl = (process.env.DATABASE_URL || "").trim();
-  const unpooledUrl = (process.env.DATABASE_URL_UNPOOLED || "").trim();
-  const isPostgres = dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://");
+  const dbUrl = (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.NEON_DATABASE_URL ||
+    ""
+  ).trim();
+  if (dbUrl && !process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = dbUrl;
+  }
+  const unpooledUrl = (
+    process.env.DATABASE_URL_UNPOOLED ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    ""
+  ).trim();
+  const isPostgres =
+    dbUrl.startsWith("postgres://") ||
+    dbUrl.startsWith("postgresql://") ||
+    process.env.VERCEL === "1";
 
   if (isPostgres) {
-    console.log("🌐 Lakebase Postgres (Neon) detectado em DATABASE_URL.");
+    console.log("🌐 Ambiente PostgreSQL / Vercel detectado.");
     run("npx prisma generate --schema=prisma/postgresql/schema.prisma");
-    // Per neon-postgres skill best practices: use direct/unpooled connection for schema migrations when available
-    const migrationEnv = unpooledUrl ? { ...process.env, DATABASE_URL: unpooledUrl } : process.env;
-    run("npx prisma db push --schema=prisma/postgresql/schema.prisma --skip-generate", migrationEnv);
-    await ensureDefaultAdmin();
+    if (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://")) {
+      const migrationEnv = unpooledUrl ? { ...process.env, DATABASE_URL: unpooledUrl } : process.env;
+      run("npx prisma db push --schema=prisma/postgresql/schema.prisma --skip-generate", migrationEnv);
+      await ensureDefaultAdmin();
+    }
   } else {
     console.log("💻 SQLite local detectado em DATABASE_URL.");
     run("npx prisma generate --schema=prisma/schema.prisma");
