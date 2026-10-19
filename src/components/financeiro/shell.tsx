@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FINANCIAL_MENUS } from "@/config/navigation";
-import SpecificationSheetModal from "@/components/SpecificationSheetModal";
+import SpecificationSheetModal from "@/components/financeiro/specification-sheet-modal";
 
 type User = { name: string; email: string; role: "ADMIN" | "FINANCE_DISK" | "PRODUCER" };
 type MenuItem = { label: string; url: string; icon: LucideIcon; internal?: boolean; admin?: boolean; capability?: string };
