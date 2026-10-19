@@ -1,0 +1,41 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { saleBreakdown, percentageCents, nonnegativeCents } from "../src/lib/split-calculation";
+
+test("calcula split conservando o valor líquido da adquirente", () => {
+  const result = saleBreakdown({ unitPriceCents: 10000n, quantity: 2, feeMode: "PERCENT_BPS", feeValue: 1000n,
+    mdrRateBps: 250, mdrFixedCents: 0n, producerPaysMdr: true });
+  assert.equal(result.gross, 20000n);
+  assert.equal(result.fee, 2000n);
+  assert.equal(result.mdr, 500n);
+  assert.equal(result.netSettlement, 19500n);
+  assert.equal(result.producerNet, 17500n);
+  assert.equal(result.diskNet, 2000n);
+});
+test("taxa fixa é por ingresso e MDR fixo por transação", () => {
+  const result = saleBreakdown({ unitPriceCents: 5000n, quantity: 3, feeMode: "FIXED_PER_TICKET", feeValue: 200n,
+    mdrRateBps: 0, mdrFixedCents: 150n, producerPaysMdr: true });
+  assert.equal(result.fee, 600n);
+  assert.equal(result.mdr, 150n);
+  assert.equal(result.netSettlement, result.producerNet + result.diskNet);
+});
+test("quando MDR é custo da Disk, margem pode ser negativa mas split permanece equilibrado", () => {
+  const result = saleBreakdown({ unitPriceCents: 1000n, quantity: 1, feeMode: "FIXED_PER_TICKET", feeValue: 10n,
+    mdrRateBps: 200, mdrFixedCents: 0n, producerPaysMdr: false });
+  assert.equal(result.producerNet, 990n);
+  assert.equal(result.diskNet, -10n);
+  assert.equal(result.netSettlement, 980n);
+});
+test("arredondamento meio para cima e limite financeiro", () => {
+  assert.equal(percentageCents(100n, 50), 1n);
+  assert.equal(percentageCents(10000n, 250), 250n);
+  assert.equal(nonnegativeCents("0"), 0n);
+  assert.throws(() => nonnegativeCents("-1"));
+});
+test("impede cobrança integral e MDR inviável", () => {
+  const base = { unitPriceCents: 1000n, quantity: 1, feeMode: "PERCENT_BPS" as const,
+    feeValue: 0n, mdrRateBps: 0, mdrFixedCents: 0n, producerPaysMdr: true };
+  assert.throws(() => saleBreakdown({ ...base, feeValue: 10000n }));
+  assert.throws(() => saleBreakdown({ ...base, mdrRateBps: 10000 }));
+  assert.throws(() => saleBreakdown({ ...base, quantity: 0 }));
+});

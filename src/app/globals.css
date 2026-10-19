@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+:root { --background: 210 33% 98%; --foreground: 222 47% 11%; --card: 0 0% 100%; --card-foreground: 222 47% 11%; --primary: 222 71% 22%; --primary-foreground: 0 0% 100%; --secondary: 213 28% 94%; --secondary-foreground: 222 47% 18%; --muted: 210 24% 95%; --muted-foreground: 215 16% 46%; --accent: 213 32% 95%; --accent-foreground: 222 45% 20%; --destructive: 0 73% 52%; --destructive-foreground: 0 0% 100%; --border: 214 30% 92%; --input: 214 30% 90%; --ring: 211 80% 63%; --radius: .8rem; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+a { text-decoration: none; }
+::selection { background: #dbeafe; }
+.dashboard-table { width: 100%; text-align: left; border-collapse: collapse; }
+.dashboard-table th { padding: 14px 18px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #64748b; background: #f8fafc; }
+.dashboard-table td { padding: 14px 18px; font-size: 13px; border-top: 1px solid #edf2f7; color: #334155; }
+.dashboard-table tbody tr:hover { background: #f9fbff; }

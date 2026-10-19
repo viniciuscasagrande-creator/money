@@ -1,0 +1,437 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  FINANCE_DISK
+  PRODUCER
+}
+
+enum EventStatus {
+  PLANNED
+  ACTIVE
+  CLOSED
+}
+
+enum TitleKind {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum TitleStatus {
+  OPEN
+  SETTLED
+  CANCELED
+}
+
+enum EntryDirection {
+  CREDIT
+  DEBIT
+}
+
+enum EntryOrigin {
+  OPENING
+  RECEIVABLE
+  PAYABLE
+  PAYOUT
+}
+
+model User {
+  id           String @id @default(cuid())
+  name         String
+  email        String @unique
+  passwordHash String
+  role         Role @default(PRODUCER)
+  active       Boolean @default(true)
+  producerId   String?
+  producer     Producer? @relation(fields: [producerId], references: [id])
+  sessions     Session[]
+  titles       FinancialTitle[]
+  audits       AuditLog[]
+  requestedPayouts PayoutRequest[] @relation("PayoutRequester")
+  approvedPayouts PayoutRequest[] @relation("PayoutApprover")
+  producerAcceptances PayoutRequest[] @relation("PayoutProducerSigner")
+  financeSignatures PayoutRequest[] @relation("PayoutFinanceSigner")
+  createdSales FinancialSale[]
+  createdRiskCases RiskCase[]
+  reconciledStatements BankStatementLine[] @relation("StatementMatcher")
+  createdContracts FinancialContract[]
+  createdBudgets BudgetLine[]
+  createdAt    DateTime @default(now())
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Producer {
+  id        String @id @default(cuid())
+  name      String
+  document  String? @unique
+  active    Boolean @default(true)
+  users     User[]
+  events    Event[]
+  titles    FinancialTitle[]
+  entries   LedgerEntry[]
+  sales     FinancialSale[]
+  payouts   PayoutRequest[]
+  riskCases RiskCase[]
+  contracts FinancialContract[]
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id         String @id @default(cuid())
+  name       String
+  status     EventStatus @default(PLANNED)
+  producerId String
+  producer   Producer @relation(fields: [producerId], references: [id])
+  titles     FinancialTitle[]
+  entries    LedgerEntry[]
+  feePolicy  EventFeePolicy?
+  sales      FinancialSale[]
+  payouts    PayoutRequest[]
+  riskCases RiskCase[]
+  contracts FinancialContract[]
+  budgets BudgetLine[]
+  createdAt  DateTime @default(now())
+  @@index([producerId])
+}
+
+model BankAccount {
+  id            String @id @default(cuid())
+  name          String
+  institution   String
+  lastFour      String?
+  balanceCents  BigInt @default(0)
+  active        Boolean @default(true)
+  titles        FinancialTitle[]
+  entries       LedgerEntry[]
+  payouts       PayoutRequest[]
+  statementLines BankStatementLine[]
+  createdAt     DateTime @default(now())
+}
+
+model FinancialTitle {
+  id             String @id @default(cuid())
+  kind           TitleKind
+  status         TitleStatus @default(OPEN)
+  description    String
+  amountCents    BigInt
+  dueDate        DateTime?
+  settledAt      DateTime?
+  producerId     String?
+  producer       Producer? @relation(fields: [producerId], references: [id])
+  eventId        String?
+  event          Event? @relation(fields: [eventId], references: [id])
+  bankAccountId  String?
+  bankAccount    BankAccount? @relation(fields: [bankAccountId], references: [id])
+  createdById    String
+  createdBy      User @relation(fields: [createdById], references: [id])
+  ledgerEntries  LedgerEntry[]
+  sale           FinancialSale?
+  createdAt      DateTime @default(now())
+  @@index([kind, status, createdAt])
+  @@index([producerId, eventId])
+  @@index([bankAccountId])
+}
+
+model LedgerEntry {
+  id            String @id @default(cuid())
+  direction     EntryDirection
+  origin        EntryOrigin
+  amountCents   BigInt
+  description   String
+  bankAccountId String
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id])
+  titleId       String? @unique
+  title         FinancialTitle? @relation(fields: [titleId], references: [id])
+  payoutId      String? @unique
+  payout        PayoutRequest? @relation(fields: [payoutId], references: [id])
+  producerId    String?
+  producer      Producer? @relation(fields: [producerId], references: [id])
+  eventId       String?
+  event         Event? @relation(fields: [eventId], references: [id])
+  statementLine BankStatementLine?
+  createdAt     DateTime @default(now())
+  @@index([bankAccountId, createdAt])
+  @@index([producerId, eventId])
+}
+
+model AuditLog {
+  id        String @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String
+  summary   String
+  actorId   String
+  actor     User @relation(fields: [actorId], references: [id])
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+  @@index([actorId])
+}
+
+// Limitação básica de tentativas de login (complementar com WAF/rate-limit na borda).
+model LoginAttempt {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  failedCount   Int      @default(0)
+  lastAttemptAt DateTime @default(now())
+  lockedUntil   DateTime?
+}
+
+// Regras de cobrança internas: nunca são disponibilizadas ao produtor.
+enum FeeMode {
+  PERCENT_BPS
+  FIXED_PER_TICKET
+}
+
+enum SaleStatus {
+  AWAITING_SETTLEMENT
+  SETTLED
+}
+
+enum PayoutType {
+  REPASSE
+  ANTECIPACAO
+}
+
+enum PayoutStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  PRODUCER_ACCEPTED
+  READY_TO_SETTLE
+  SETTLED
+}
+
+model Gateway {
+  id        String @id @default(cuid())
+  name      String @unique
+  active    Boolean @default(true)
+  rules     MdrRule[]
+  sales     FinancialSale[]
+  createdAt DateTime @default(now())
+}
+
+model CardBrand {
+  id        String @id @default(cuid())
+  name      String @unique
+  active    Boolean @default(true)
+  rules     MdrRule[]
+  sales     FinancialSale[]
+  createdAt DateTime @default(now())
+}
+
+model MdrRule {
+  id           String @id @default(cuid())
+  gatewayId    String
+  gateway      Gateway @relation(fields: [gatewayId], references: [id])
+  brandId      String
+  brand        CardBrand @relation(fields: [brandId], references: [id])
+  installments Int @default(1)
+  rateBps      Int
+  fixedCents   BigInt @default(0)
+  active       Boolean @default(true)
+  sales        FinancialSale[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@unique([gatewayId, brandId, installments])
+}
+
+model EventFeePolicy {
+  id               String @id @default(cuid())
+  eventId          String @unique
+  event            Event @relation(fields: [eventId], references: [id])
+  mode             FeeMode
+  value            BigInt
+  producerPaysMdr  Boolean @default(true)
+  active           Boolean @default(true)
+  sales            FinancialSale[]
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
+}
+
+// Cópia imutável dos valores calculados no instante da venda.
+// O recebível bancário gerado é de uso interno.
+model FinancialSale {
+  id                  String @id @default(cuid())
+  externalReference   String @unique
+  producerId          String
+  producer            Producer @relation(fields: [producerId], references: [id])
+  eventId             String
+  event               Event @relation(fields: [eventId], references: [id])
+  gatewayId           String
+  gateway             Gateway @relation(fields: [gatewayId], references: [id])
+  brandId             String
+  brand               CardBrand @relation(fields: [brandId], references: [id])
+  mdrRuleId           String
+  mdrRule             MdrRule @relation(fields: [mdrRuleId], references: [id])
+  feePolicyId         String
+  feePolicy           EventFeePolicy @relation(fields: [feePolicyId], references: [id])
+  quantity            Int
+  unitPriceCents      BigInt
+  grossCents          BigInt
+  feeModeAtSale       FeeMode
+  feeValueAtSale      BigInt
+  producerPaysMdrAtSale Boolean
+  mdrRateBpsAtSale    Int
+  mdrFixedCentsAtSale BigInt
+  feeCents            BigInt
+  mdrCents            BigInt
+  netSettlementCents  BigInt
+  producerNetCents    BigInt
+  diskNetCents        BigInt
+  status              SaleStatus @default(AWAITING_SETTLEMENT)
+  receivableTitleId   String @unique
+  receivableTitle     FinancialTitle @relation(fields: [receivableTitleId], references: [id])
+  createdById         String
+  createdBy           User @relation(fields: [createdById], references: [id])
+  createdAt           DateTime @default(now())
+  settledAt           DateTime?
+  riskCases           RiskCase[]
+  @@index([producerId, eventId, status])
+  @@index([createdAt])
+}
+
+model PayoutRequest {
+  id                   String @id @default(cuid())
+  type                 PayoutType
+  status               PayoutStatus @default(REQUESTED)
+  amountCents          BigInt
+  producerId           String
+  producer             Producer @relation(fields: [producerId], references: [id])
+  eventId              String
+  event                Event @relation(fields: [eventId], references: [id])
+  requestedById        String
+  requestedBy          User @relation("PayoutRequester", fields: [requestedById], references: [id])
+  approvedById         String?
+  approvedBy           User? @relation("PayoutApprover", fields: [approvedById], references: [id])
+  producerAcceptedById String?
+  producerAcceptedBy   User? @relation("PayoutProducerSigner", fields: [producerAcceptedById], references: [id])
+  financeSignedById    String?
+  financeSignedBy      User? @relation("PayoutFinanceSigner", fields: [financeSignedById], references: [id])
+  approvedAt           DateTime?
+  producerAcceptedAt   DateTime?
+  financeSignedAt      DateTime?
+  rejectedAt           DateTime?
+  rejectionReason      String?
+  bankAccountId        String?
+  bankAccount          BankAccount? @relation(fields: [bankAccountId], references: [id])
+  settlementReference  String? @unique
+  settledAt            DateTime?
+  ledgerEntry          LedgerEntry?
+  createdAt            DateTime @default(now())
+  @@index([producerId, eventId, status])
+  @@index([createdAt])
+}
+
+// Pacote 03: conferência externa; importar linhas NÃO movimenta o razão ou o saldo.
+enum StatementStatus {
+  PENDING
+  MATCHED
+}
+model BankStatementLine {
+  id            String @id @default(cuid())
+  bankAccountId String
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id])
+  externalId    String
+  postedAt      DateTime
+  description   String
+  direction     EntryDirection
+  amountCents   BigInt
+  status        StatementStatus @default(PENDING)
+  ledgerEntryId String? @unique
+  ledgerEntry   LedgerEntry? @relation(fields: [ledgerEntryId], references: [id])
+  matchedById   String?
+  matchedBy     User? @relation("StatementMatcher", fields: [matchedById], references: [id])
+  matchedAt     DateTime?
+  createdAt     DateTime @default(now())
+  @@unique([bankAccountId, externalId])
+  @@index([bankAccountId, status])
+}
+
+enum RiskType {
+  REFUND
+  CHARGEBACK
+}
+enum RiskStatus {
+  OPEN
+  CONFIRMED
+  REJECTED
+}
+model RiskCase {
+  id            String @id @default(cuid())
+  saleId        String
+  sale          FinancialSale @relation(fields: [saleId], references: [id])
+  eventId       String
+  event         Event @relation(fields: [eventId], references: [id])
+  producerId    String
+  producer      Producer @relation(fields: [producerId], references: [id])
+  externalId    String @unique
+  type          RiskType
+  status        RiskStatus @default(OPEN)
+  // Impacto cautelar na parcela do produtor, NÃO valor bruto de reembolso ao comprador.
+  exposureCents BigInt
+  reason        String
+  createdById   String
+  createdBy     User @relation(fields: [createdById], references: [id])
+  decidedAt     DateTime?
+  createdAt     DateTime @default(now())
+  @@index([saleId, status])
+  @@index([eventId, status])
+}
+
+enum BudgetKind {
+  REVENUE
+  EXPENSE
+}
+model BudgetLine {
+  id            String @id @default(cuid())
+  eventId       String
+  event         Event @relation(fields: [eventId], references: [id])
+  kind          BudgetKind
+  category      String
+  description   String
+  amountCents   BigInt
+  createdById   String
+  createdBy     User @relation(fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+  @@index([eventId, kind])
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+}
+model FinancialContract {
+  id          String @id @default(cuid())
+  title       String
+  counterparty String
+  producerId  String?
+  producer    Producer? @relation(fields: [producerId], references: [id])
+  eventId     String?
+  event       Event? @relation(fields: [eventId], references: [id])
+  status      ContractStatus @default(DRAFT)
+  startDate   DateTime
+  endDate     DateTime?
+  terms       String
+  createdById String
+  createdBy   User @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  @@index([eventId, status])
+}

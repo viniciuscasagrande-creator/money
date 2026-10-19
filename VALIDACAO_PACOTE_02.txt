@@ -1,0 +1,12 @@
+PACOTE 02 — RESULTADOS DE VERIFICAÇÃO LOCAL — 2026-10-19
+
+OK: arquivos TypeScript e TSX transpilados sintaticamente via TypeScript global.
+OK: 8 testes unitários de valores BRL e divisão de receitas rodados isoladamente via TypeScript global/Node VM.
+OK: paridade textual entre modelos Prisma SQLite e PostgreSQL, excluindo provider.
+OK: referência a arquivos locais verificada por varredura de imports com alias @/.
+PENDENTE: instalação das dependências do projeto (npm install excedeu o tempo disponível do ambiente).
+PENDENTE: geração do cliente Prisma, validação do schema via prisma validate, verificação tsc, build Next.js.
+PENDENTE: teste de integração com banco, testes de controle de acesso reais, concorrência e teste ponta a ponta.
+PENDENTE: publicação Preview/produção; nenhuma publicação ou movimentação bancária real executada.
+
+Homologar com: npm install && npm run db:generate && npm run db:push && npm run typecheck && npm test && npm run build
