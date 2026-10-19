@@ -3,18 +3,26 @@ import { authorize, isInternal } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { titleWhereFor, titleDTO, titleInclude } from "@/lib/finance";
 import { eventAvailability } from "@/lib/operations";
+import { buildSixMonthTrend, sixMonthStart } from "@/lib/dashboard-trend";
 export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   const { user, error } = await authorize(request); if (error || !user) return error!;
   const where = titleWhereFor(user);
-  const [accounts, pendingIn, pendingOut, settledIn, settledOut, latest, events] = await Promise.all([
+  // Agregação temporal com valores efetivamente liquidados, sem dados simulados.
+  const currentDate = new Date();
+  const monthStart = sixMonthStart(currentDate);
+  const [accounts, pendingIn, pendingOut, settledIn, settledOut, latest, events, timelineTitles] = await Promise.all([
     isInternal(user.role) ? prisma.bankAccount.aggregate({ _sum: { balanceCents: true }, _count: true, where: { active: true } }) : null,
     prisma.financialTitle.aggregate({ _sum: { amountCents: true }, _count: true, where: { ...where, kind: "RECEIVABLE", status: "OPEN" } }),
     prisma.financialTitle.aggregate({ _sum: { amountCents: true }, _count: true, where: { ...where, kind: "PAYABLE", status: "OPEN" } }),
     prisma.financialTitle.aggregate({ _sum: { amountCents: true }, _count: true, where: { ...where, kind: "RECEIVABLE", status: "SETTLED" } }),
     prisma.financialTitle.aggregate({ _sum: { amountCents: true }, _count: true, where: { ...where, kind: "PAYABLE", status: "SETTLED" } }),
     prisma.financialTitle.findMany({ where, include: titleInclude, take: 8, orderBy: { createdAt: "desc" } }),
-    prisma.event.count({ where: user.role === "PRODUCER" ? { producerId: user.producerId! } : {} })
+    prisma.event.count({ where: user.role === "PRODUCER" ? { producerId: user.producerId! } : {} }),
+    prisma.financialTitle.findMany({
+      where: { ...where, status: "SETTLED", settledAt: { gte: monthStart } },
+      select: { kind: true, amountCents: true, settledAt: true }
+    })
   ]);
   const eventPositions = user.role === "PRODUCER"
     ? await prisma.event.findMany({ where: { producerId: user.producerId! }, select: { id: true } })
@@ -23,6 +31,7 @@ export async function GET(request: NextRequest) {
   const sum = (key: "totalCents" | "settledCents" | "committedCents" | "repasseCents") =>
     positions.reduce((value, item) => value + item[key], 0n).toString();
   return NextResponse.json({
+    trend: buildSixMonthTrend(timelineTitles, currentDate),
     metrics: {
       saldoBancarioCents: accounts?._sum.balanceCents?.toString() ?? null,
       contasBancarias: accounts?._count ?? null,

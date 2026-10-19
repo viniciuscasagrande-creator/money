@@ -29,7 +29,7 @@ export function ReconciliationPage(){
  async function match(statementId:string){const ledgerEntryId=matches[statementId];if(!ledgerEntryId)return;setBusy(true);setMessage("");try{
   await api("/api/controle/conciliar",{method:"POST",body:JSON.stringify({statementId,ledgerEntryId})});reload();
  }catch(err){setMessage(err instanceof Error?err.message:"Não foi possível conciliar.");}finally{setBusy(false);}}
- return <><PageHeading eyebrow="Pacote 03 · Tesouraria" title="Conciliação bancária" subtitle="Importe lançamentos de extrato e confira manualmente contra o razão. Nenhuma importação ou conciliação altera o saldo bancário."/>
+ return <><PageHeading eyebrow="Tesouraria · Conciliação" title="Conciliação bancária" subtitle="Importe lançamentos de extrato e confira manualmente contra o razão. Nenhuma importação ou conciliação altera o saldo bancário."/>
  <PanelMessage text={message}/>{ce&&<ErrorNotice message={ce}/>} {error&&<ErrorNotice message={error} retry={reload}/>}
  {(cl||loading)?<Loading/>:<><div className="mb-5 grid gap-5 lg:grid-cols-2">
  <FormCard title="Registrar linha de extrato"><form className="space-y-3" onSubmit={create}>
@@ -64,7 +64,7 @@ export function RiskPage(){
  if(!window.confirm(decision==="CONFIRMED"?"Confirmar perda contabilizada no direito do produtor, sem transferência bancária?":"Rejeitar ocorrência e liberar a reserva?"))return;
  setBusy(true);setMessage("");try{await api("/api/controle/risco-decisao",{method:"POST",body:JSON.stringify({id,decision})});reload();}
  catch(err){setMessage(err instanceof Error?err.message:"Falha na decisão.");}finally{setBusy(false);}}
- return <><PageHeading eyebrow="Pacote 03 · Controle" title="Estornos e chargebacks" subtitle="Registre exposições de risco por venda, bloqueie a capacidade de repasse e confirme ou libere a retenção. Sem execução de reembolso real."/>
+ return <><PageHeading eyebrow="Controle · Riscos" title="Estornos e chargebacks" subtitle="Registre exposições de risco por venda, bloqueie a capacidade de repasse e confirme ou libere a retenção. Sem execução de reembolso real."/>
  <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">O valor informado é a parcela do direito do produtor exposta ao risco, não necessariamente o reembolso bruto ao consumidor. Para casos já repassados ou que excedam o saldo livre, é necessária análise manual separada.</div>
  <PanelMessage text={message}/>{ce&&<ErrorNotice message={ce}/>} {error&&<ErrorNotice message={error} retry={reload}/>}
  <div className="mb-5 grid gap-5 lg:grid-cols-[1fr_1fr]"><FormCard title="Nova ocorrência"><form className="space-y-3" onSubmit={create}>
@@ -92,7 +92,7 @@ export function BudgetPage(){
  async function submit(e:FormEvent){e.preventDefault();setBusy(true);setMessage("");try{await api("/api/controle/orcamentos",{method:"POST",
  body:JSON.stringify({eventId:event,kind,category,description,amountCents:parseBRLToCents(amount)})});setDescription("");setAmount("");reload();}
  catch(err){setMessage(err instanceof Error?err.message:"Falha ao salvar.");}finally{setBusy(false);}}
- return <><PageHeading eyebrow="Pacote 03 · Planejamento" title="Orçamento financeiro por evento" subtitle="Projete receitas e despesas futuras por centro de interesse, sem lançar valores no caixa. A visão abaixo é exclusivamente orçada."/>
+ return <><PageHeading eyebrow="Planejamento financeiro" title="Orçamento financeiro por evento" subtitle="Projete receitas e despesas futuras por centro de interesse, sem lançar valores no caixa. A visão abaixo é exclusivamente orçada."/>
  <PanelMessage text={message}/>{ce&&<ErrorNotice message={ce}/>} {error&&<ErrorNotice message={error} retry={reload}/>}
  <FormCard title="Nova previsão"><form onSubmit={submit} className="grid gap-3 md:grid-cols-3">
  <SelectField label="Evento" value={event} onChange={setEvent}><option value="">Selecione</option>{c?.events.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</SelectField>
@@ -115,7 +115,7 @@ export function ContractsPage(){
  async function submit(e:FormEvent){e.preventDefault();setBusy(true);setMessage("");try{await api("/api/controle/contratos",{method:"POST",
  body:JSON.stringify({title,counterparty,eventId:event||null,status,startDate:start,endDate:end||null,terms})});setTitle("");setCounterparty("");setTerms("");reload();}
  catch(err){setMessage(err instanceof Error?err.message:"Falha no contrato.");}finally{setBusy(false);}}
- return <><PageHeading eyebrow="Pacote 03 · Documentação" title="Contratos financeiros" subtitle="Cadastre condições, partes e vigência. Os registros são documentais e não substituem a assinatura eletrônica nem alteram MDR ou taxas automaticamente."/>
+ return <><PageHeading eyebrow="Gestão documental" title="Contratos financeiros" subtitle="Cadastre condições, partes e vigência. Os registros são documentais e não substituem a assinatura eletrônica nem alteram MDR ou taxas automaticamente."/>
  <PanelMessage text={message}/>{ce&&<ErrorNotice message={ce}/>} {error&&<ErrorNotice message={error} retry={reload}/>}
  <FormCard title="Cadastrar contrato"><form onSubmit={submit} className="grid gap-3 md:grid-cols-3">
  <Field label="Título"><Input required value={title} onChange={e=>setTitle(e.target.value)}/></Field>
@@ -139,7 +139,7 @@ export function AccountingPage(){
  async function run(e:FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const response=await api<{rows:Journal[];count:number}>(`/api/controle/contabilidade?inicio=${start}&fim=${end}`);
  setRows(response.rows);setCount(response.count);}catch(err){setMessage(err instanceof Error?err.message:"Não foi possível consultar.");}finally{setBusy(false);}}
  function exportCsv(){window.location.href=`/api/controle/contabilidade?inicio=${start}&fim=${end}&formato=csv`;}
- return <><PageHeading eyebrow="Pacote 03 · Contabilidade" title="Pré-exportação contábil" subtitle="Consulta de partidas sugeridas a partir do razão bancário, com exportação CSV para conferência de contador. Não transmite dados nem fecha livros fiscais."/>
+ return <><PageHeading eyebrow="Contabilidade · Escrituração" title="Pré-exportação contábil" subtitle="Consulta de partidas sugeridas a partir do razão bancário, com exportação CSV para conferência de contador. Não transmite dados nem fecha livros fiscais."/>
  <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Classificações contábeis provisórias devem ser revisadas, principalmente receitas próprias, obrigações com produtores, retenções e tributos. A exportação não equivale a DRE ou balanço homologado.</div>
  <PanelMessage text={message}/><FormCard title="Período da consulta (máximo 93 dias)"><form onSubmit={run} className="flex flex-wrap items-end gap-3">
  <Field label="De"><Input type="date" required value={start} onChange={e=>setStart(e.target.value)}/></Field><Field label="Até"><Input type="date" required value={end} onChange={e=>setEnd(e.target.value)}/></Field>

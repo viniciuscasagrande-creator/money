@@ -1,9 +1,11 @@
 {
-  "name": "financeiro-pacote-04",
-  "version": "4.0.0",
+  "name": "erp-financeiro-fintech-premium",
+  "version": "4.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/prepare-prisma.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/prepare-prisma.mjs",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -22,6 +24,8 @@
     "vercel-build": "node scripts/deploy-build.mjs"
   },
   "dependencies": {
+    "@neon/config": "^1.9.2",
+    "@neon/env": "^1.6.3",
     "@prisma/client": "^6.19.0",
     "@radix-ui/react-dialog": "^1.1.5",
     "@radix-ui/react-label": "^2.1.2",

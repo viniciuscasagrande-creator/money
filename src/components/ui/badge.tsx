@@ -1,31 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
-
-export function Badge({
-  children,
-  tone = "neutral",
-  className,
-}: {
-  children: React.ReactNode;
-  tone?: "neutral" | "green" | "amber" | "red" | "blue";
-  className?: string;
-}) {
-  const tones = {
-    neutral: "bg-[#EBEBED] text-[#47505A] border border-[#BBBFC5]/60",
-    green: "bg-emerald-50 text-emerald-800 border border-emerald-200/80",
-    amber: "bg-amber-50 text-amber-800 border border-amber-200/80",
-    red: "bg-[#E03629]/10 text-[#E03629] border border-[#E03629]/25",
-    blue: "bg-[#0F1113] text-white border border-[#0F1113]",
-  };
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold tracking-tight",
-        tones[tone],
-        className
-      )}
-    >
-      {children}
-    </span>
-  );
+export function Badge({ children, tone = "neutral", className }: { children: React.ReactNode; tone?: "neutral" | "green" | "amber" | "red" | "blue"; className?: string }) {
+  const tones = { neutral: "bg-slate-100 text-slate-700", green: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-800", red: "bg-red-50 text-red-700", blue: "bg-blue-50 text-blue-700" };
+  return <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold", tones[tone], className)}>{children}</span>;
 }

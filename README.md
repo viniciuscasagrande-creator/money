@@ -1,3 +1,13 @@
+# ERP Financeiro — Fintech Premium (Atualização visual 4.1)
+
+Este projeto é **cumulativo** e inclui os Pacotes 01, 02, 03 e 04, com a identidade visual **Fintech Premium** aplicada ao layout global, Dashboard Financeiro, tela de login e componentes compartilhados.
+
+- [Novidades, arquivos alterados e limitações](VISUAL_FINTECH_PREMIUM.md)
+- **Prévia visual estática:** `preview/visual-fintech-premium.html` (sem login nem conexão com banco)
+- Os fluxos financeiros e controles originais foram preservados.
+
+---
+
 # ERP Financeiro — Pacote 04 (cumulativo)
 
 Contém os módulos desenvolvidos nos **Pacotes 01, 02, 03 e 04**. Não substitui o núcleo financeiro nem restaura dados fictícios. **Sem conexão bancária real**, sem execução de transferências, sem assinatura digital certificada e sem estornos externos.
