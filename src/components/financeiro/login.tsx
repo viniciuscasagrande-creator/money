@@ -1,25 +1,16 @@
 "use client";
+
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import {
-  CircleDollarSign,
-  LockKeyhole,
-  ShieldCheck,
-  Building2,
-  UserCheck,
-  Clock,
-  KeyRound,
-} from "lucide-react";
+import { CircleDollarSign, LockKeyhole, ShieldCheck, Building2, Ticket, CheckCircle2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { TOTAL_MAIN_MENUS, TOTAL_SUBMENUS } from "@/config/navigation";
 
 export function LoginForm() {
   const router = useRouter();
-  const [loginMode, setLoginMode] = useState<"INTERNAL" | "PRODUCER">("INTERNAL");
+  const [portalMode, setPortalMode] = useState<"ADMIN" | "PRODUCER">("ADMIN");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -33,7 +24,7 @@ export function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, portalMode }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Não foi possível entrar.");
@@ -47,112 +38,119 @@ export function LoginForm() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
-      {/* Left Institutional Panel */}
-      <div className="hidden flex-col justify-between bg-slate-900 p-14 text-white lg:flex">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <CircleDollarSign size={29} className="text-sky-400" />
+    <div className="grid min-h-screen bg-[#EBEBED] lg:grid-cols-[1.08fr_0.92fr]">
+      {/* Painel Esquerdo BankOS Grafite #0F1113 */}
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-[#0F1113] p-14 text-white lg:flex">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-[#E03629]/20 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-12 left-12 h-64 w-64 rounded-full bg-[#47505A]/20 blur-3xl" />
+
+        <div className="relative z-10 flex items-center justify-between">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#E03629] text-white shadow-[0_8px_24px_rgba(224,54,41,0.4)]">
+              <CircleDollarSign size={25} />
+            </div>
             <div>
-              <span className="text-lg font-bold block leading-none">Financeiro ERP</span>
-              <span className="text-[11px] text-slate-400 font-mono">
-                {TOTAL_MAIN_MENUS} Menus · {TOTAL_SUBMENUS} Submenus
-              </span>
+              <span className="text-lg font-bold tracking-tight">BankOS · Financeiro ERP</span>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#BBBFC5]">
+                17 Menus · 172 Submenus · Pacotes 01–04
+              </p>
             </div>
           </div>
-          <Badge tone="blue">Pacote 01 · Fundação</Badge>
+          <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1 text-xs font-semibold text-[#BBBFC5]">
+            Fintech Premium UI
+          </span>
         </div>
 
-        {loginMode === "INTERNAL" ? (
-          <div>
-            <div className="mb-7 h-1 w-20 rounded bg-sky-400" />
-            <span className="inline-flex items-center gap-2 rounded-full bg-sky-500/15 px-3 py-1 text-xs font-semibold text-sky-300 mb-4">
-              <Building2 size={14} />
-              Tela de Login 01 · Administrador e Financeiro Interno
-            </span>
-            <h1 className="max-w-lg text-4xl font-semibold leading-[1.15]">
-              Controle financeiro com <span className="text-sky-300">segurança</span>, razão em centavos e rastreabilidade.
-            </h1>
-            <p className="mt-5 max-w-md text-slate-300 text-sm leading-relaxed">
-              Gestão de recebimentos, contas a pagar, tesouraria, saldos conciliados no razão financeiro
-              (BigInt) e estrutura completa de {TOTAL_MAIN_MENUS} menus e {TOTAL_SUBMENUS} submenus.
-            </p>
+        <div className="relative z-10 my-auto max-w-xl">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#E03629]/40 bg-[#E03629]/15 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-white">
+            <span className="h-2 w-2 rounded-full bg-[#E03629]" />
+            Núcleo Financeiro Centralizado
           </div>
-        ) : (
-          <div>
-            <div className="mb-7 h-1 w-20 rounded bg-amber-400" />
-            <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-300 mb-4">
-              <Clock size={14} />
-              Tela de Login 02 · Portal do Produtor (Etapa Pós-Financeiro)
-            </span>
-            <h1 className="max-w-lg text-4xl font-semibold leading-[1.15]">
-              Acesso exclusivo do <span className="text-amber-300">Produtor e Organizador</span> de eventos.
-            </h1>
-            <p className="mt-5 max-w-md text-slate-300 text-sm leading-relaxed">
-              O Portal completo do Produtor (borderôs, solicitações de repasse, antecipações e acerto de
-              evento) será montado logo após a conclusão do Financeiro Interno. Produtores já cadastrados
-              pelo Administrador podem autenticar-se aqui para consulta restrita aos seus eventos.
-            </p>
-          </div>
-        )}
+          <h1 className="text-5xl font-bold leading-[1.12] tracking-tight">
+            Controle financeiro com <span className="text-[#E03629]">precisão</span>, alçadas e
+            rastreabilidade.
+          </h1>
+          <p className="mt-5 max-w-lg text-base leading-relaxed text-[#BBBFC5]">
+            Razão financeiro único em centavos inteiros, split de ingressos e MDR, repasses e
+            antecipações com dupla assinatura, conciliação bancária, controle de estornos e
+            governança executiva.
+          </p>
 
-        <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-800 pt-4">
-          <span>Pacote 01 · Fundação Financeira (Prisma + SQLite/PostgreSQL)</span>
-          <span>API de Ingressos Configurada</span>
+          <div className="mt-8 grid grid-cols-2 gap-3.5">
+            {[
+              "Pacote 01 · Fundação, Contas e Razão",
+              "Pacote 02 · Gateways, MDR, Split e Repasses",
+              "Pacote 03 · Conciliação, Riscos e Contábil",
+              "Pacote 04 · BI, Alertas e Alçadas",
+            ].map((item) => (
+              <div
+                key={item}
+                className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs font-semibold text-white"
+              >
+                <CheckCircle2 size={15} className="shrink-0 text-[#E03629]" />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="relative z-10 flex items-center justify-between border-t border-white/10 pt-6 text-xs text-[#BBBFC5]">
+          <span>Paleta BankOS (#0F1113 · #47505A · #BBBFC5 · #EBEBED · #E03629)</span>
+          <span>Zero dados fictícios · Prisma ORM</span>
         </div>
       </div>
 
-      {/* Right Authentication Form */}
-      <div className="flex items-center justify-center px-5 py-12 bg-slate-50">
+      {/* Painel Direito — Seletor de 2 Telas de Login (Administrador vs Produtor) */}
+      <div className="flex items-center justify-center px-5 py-12">
         <div className="w-full max-w-md">
-          {/* Dual Login Mode Selector */}
-          <div className="mb-6 grid grid-cols-2 gap-2 rounded-xl bg-slate-200/80 p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setLoginMode("INTERNAL");
-                setError("");
-              }}
-              className={`flex items-center justify-center gap-2 rounded-lg py-2.5 px-3 text-xs font-bold transition ${
-                loginMode === "INTERNAL"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <Building2 size={15} />
-              <span>1. Login Administrador</span>
-            </button>
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#E03629] text-white">
+              <CircleDollarSign size={22} />
+            </div>
+            <span className="text-lg font-bold text-[#0F1113]">BankOS · Financeiro ERP</span>
+          </div>
 
+          {/* Seletor das Duas Telas de Login */}
+          <div className="mb-6 grid grid-cols-2 gap-2 rounded-2xl border border-[#BBBFC5]/70 bg-white p-1.5 shadow-xs">
             <button
               type="button"
-              onClick={() => {
-                setLoginMode("PRODUCER");
-                setError("");
-              }}
-              className={`flex items-center justify-center gap-2 rounded-lg py-2.5 px-3 text-xs font-bold transition ${
-                loginMode === "PRODUCER"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
+              onClick={() => setPortalMode("ADMIN")}
+              className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all ${
+                portalMode === "ADMIN"
+                  ? "bg-[#0F1113] text-white shadow-sm"
+                  : "text-[#47505A] hover:text-[#0F1113]"
               }`}
             >
-              <UserCheck size={15} />
-              <span>2. Login Produtor</span>
+              <Building2 size={15} className={portalMode === "ADMIN" ? "text-[#E03629]" : ""} />
+              1. Login Administrador
+            </button>
+            <button
+              type="button"
+              onClick={() => setPortalMode("PRODUCER")}
+              className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all ${
+                portalMode === "PRODUCER"
+                  ? "bg-[#0F1113] text-white shadow-sm"
+                  : "text-[#47505A] hover:text-[#0F1113]"
+              }`}
+            >
+              <Ticket size={15} className={portalMode === "PRODUCER" ? "text-[#E03629]" : ""} />
+              2. Login Produtor
             </button>
           </div>
 
           <div className="mb-6">
-            <div className="mb-3 inline-flex rounded-xl bg-blue-50 p-3 text-blue-800">
-              <LockKeyhole size={24} />
+            <div className="mb-3 inline-flex items-center gap-2 rounded-2xl bg-[#0F1113] p-3 text-white">
+              <LockKeyhole size={22} className="text-[#E03629]" />
             </div>
-            <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-              {loginMode === "INTERNAL"
-                ? "Acesso Administrativo / Interno"
-                : "Acesso do Produtor / Parceiro"}
+            <h2 className="text-3xl font-bold tracking-tight text-[#0F1113]">
+              {portalMode === "ADMIN"
+                ? "Acesso Interno & Governança"
+                : "Portal Financeiro do Produtor"}
             </h2>
-            <p className="mt-1.5 text-sm text-slate-500">
-              {loginMode === "INTERNAL"
-                ? "Entre com as credenciais de Administrador ou Financeiro Interno."
-                : "Área exclusiva para produtores vinculados a eventos (montagem completa após o módulo interno)."}
+            <p className="mt-1.5 text-sm text-[#47505A]">
+              {portalMode === "ADMIN"
+                ? "Exclusivo para Administrador, Financeiro Interno e Tesouraria (17 menus)."
+                : "Acesso restrito aos eventos, saldos apurados, solicitações de repasse e aceite do produtor."}
             </p>
           </div>
 
@@ -160,9 +158,7 @@ export function LoginForm() {
             <CardContent className="p-7">
               <form onSubmit={submit} className="space-y-5">
                 <div>
-                  <Label htmlFor="email">
-                    {loginMode === "INTERNAL" ? "E-mail corporativo" : "E-mail do produtor"}
-                  </Label>
+                  <Label htmlFor="email">E-mail corporativo</Label>
                   <Input
                     required
                     id="email"
@@ -171,8 +167,8 @@ export function LoginForm() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder={
-                      loginMode === "INTERNAL"
-                        ? "admin@seudominio.com.br"
+                      portalMode === "ADMIN"
+                        ? "admin@financeiro.local"
                         : "produtor@evento.com.br"
                     }
                   />
@@ -188,32 +184,31 @@ export function LoginForm() {
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
+
                 {error && (
-                  <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-[#E03629]/30 bg-[#E03629]/10 p-3 text-sm font-medium text-[#E03629]"
+                  >
                     {error}
                   </p>
                 )}
+
                 <Button disabled={loading} type="submit" className="w-full">
                   {loading
-                    ? "Verificando acesso..."
-                    : loginMode === "INTERNAL"
-                    ? "Entrar no Financeiro Interno"
-                    : "Entrar no Portal do Produtor"}
+                    ? "Verificando credenciais..."
+                    : portalMode === "ADMIN"
+                    ? "Entrar no ERP Financeiro"
+                    : "Entrar como Produtor"}
                 </Button>
               </form>
             </CardContent>
           </Card>
 
-          <div className="mt-5 space-y-2 text-center text-xs text-slate-500">
-            <p className="flex items-center justify-center gap-2">
-              <ShieldCheck size={16} className="text-emerald-600" />
-              Sessão HttpOnly + bcrypt · Sem saldos ou usuários fictícios
-            </p>
-            <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
-              <KeyRound size={13} />
-              Chave de API externa de ingressos configurada no ambiente (.env)
-            </p>
-          </div>
+          <p className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-[#47505A]">
+            <ShieldCheck size={16} className="text-[#E03629]" /> Sessão HttpOnly com segregação de
+            escopo na API e no banco
+          </p>
         </div>
       </div>
     </div>

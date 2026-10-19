@@ -67,7 +67,7 @@ try {
   await create('/api/admin/usuarios', { name: 'Usuário Homologação A', email: aEmail, password: producerPassword, role: 'PRODUCER', producerId: producerA.id });
   await create('/api/admin/usuarios', { name: 'Usuário Homologação B', email: bEmail, password: producerPassword, role: 'PRODUCER', producerId: producerB.id });
   const financeEmail = `finance-${unique.toLowerCase()}@example.invalid`;
-  await create('/api/admin/usuarios', { name: 'Financeiro de Homologação', email: financeEmail, password: producerPassword, role: 'FINANCE_DISK' });
+  const financeUser = await create('/api/admin/usuarios', { name: 'Financeiro de Homologação', email: financeEmail, password: producerPassword, role: 'FINANCE_DISK' });
   await login(finance, financeEmail, producerPassword);
   await login(a, aEmail, producerPassword);
   await login(b, bEmail, producerPassword);
@@ -115,6 +115,10 @@ try {
   check('Produtor B não cria antecipação no evento A', () => assert.equal(otherEvent.status, 409));
 
   const advance = await create('/api/repasses', { eventId: eventA.id, type: 'ANTECIPACAO', amountCents: '5000' }, a);
+  const noAuthority = await req(`/api/repasses/${advance.id}/acoes`, 'POST', { action:'APPROVE' }, finance);
+  check('Pacote 04: Financeiro sem alçada não aprova',()=>assert.equal(noAuthority.status,409));
+  expectStatus(await req('/api/governanca/alcadas','POST',{userId:financeUser.id,type:'ANTECIPACAO',maxCents:'5000',active:true},admin),200,'Configurar alçada de antecipação');
+  expectStatus(await req('/api/governanca/alcadas','POST',{userId:financeUser.id,type:'REPASSE',maxCents:'12000',active:true},admin),200,'Configurar alçada de repasse');
   await action(advance.id, 'APPROVE', {}, finance);
   const wrongAccept = await req(`/api/repasses/${advance.id}/acoes`, 'POST', { action: 'PRODUCER_ACCEPT' }, b);
   check('Produtor B não assina solicitação de A', () => assert.equal(wrongAccept.status, 409));
@@ -208,6 +212,24 @@ try {
     200,'Pré-exportação contábil');
   check('Exportação sugestiva conserva partidas dobradas',()=>assert.equal(exportJournal.totalCreditsCents,exportJournal.totalDebitsCents));
   check('Produtor não acessa controles internos do Pacote 03',()=>{});
+  // Pacote 04 - isolamento de relatórios, governança e alertas.
+  const periodStart=todayForTests.slice(0,7)+'-01';
+  const reportA=expectStatus(await req(`/api/inteligencia/relatorios?inicio=${periodStart}&fim=${todayForTests}&agrupar=EVENT`,'GET',undefined,a),200,'Relatórios do produtor A');
+  check('Produtor só vê relatório dos próprios eventos e não recebe taxa da Disk',()=>{
+    assert.ok(reportA.rows.every(x=>x.key===eventA.id));
+    assert.ok(!JSON.stringify(reportA).includes('diskCents'));assert.ok(!JSON.stringify(reportA).includes('mdrCents'));
+  });
+  const reportOther=await req(`/api/inteligencia/relatorios?inicio=${periodStart}&fim=${todayForTests}&agrupar=EVENT&eventoId=${eventB.id}`,'GET',undefined,a);
+  check('Produtor A não acessa relatório de evento B',()=>assert.equal(reportOther.status,409));
+  for(const path of ['/api/governanca/auditoria','/api/governanca/usuarios','/api/governanca/alcadas','/api/governanca/configuracoes','/api/inteligencia/alertas']){
+    check(`Produtor bloqueado em ${path}`,()=>{});
+    expectStatus(await req(path,'GET',undefined,a),403,'Permissões produtor');
+  }
+  expectStatus(await req('/api/governanca/usuarios','GET',undefined,finance),403,'Financeiro sem alteração de permissões');
+  const alerts=expectStatus(await req('/api/inteligencia/alertas','GET',undefined,finance),200,'Alertas operacionais');
+  check('Alertas são respostas sob demanda',()=>assert.ok(Array.isArray(alerts.items)));
+  const auditNew=expectStatus(await req('/api/governanca/auditoria?pagina=1&limite=10','GET',undefined,admin),200,'Auditoria avançada');
+  check('Auditoria paginada mantém total',()=>assert.ok(auditNew.count>=auditNew.items.length));
   const requestsB = expectStatus(await req('/api/repasses', 'GET', undefined, b), 200, 'Pedidos produtor B');
   check('Produtor B não consulta os pedidos de A', () => assert.ok(!requestsB.items.some(i => [advance.id, payout.id].includes(i.id))));
   const audits = expectStatus(await req('/api/auditoria', 'GET', undefined, admin), 200, 'Auditoria interna').items;

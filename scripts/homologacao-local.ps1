@@ -1,4 +1,4 @@
-# Pacote 02 - homologação isolada para Windows / VS Code / PowerShell 7 ou Windows PowerShell 5.1.
+# Pacote 04 - homologação integrada e isolada para Windows / VS Code / PowerShell 7 ou Windows PowerShell 5.1.
 # NÃO utiliza o banco real e NÃO executa transferências externas.
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path

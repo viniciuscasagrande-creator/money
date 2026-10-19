@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { parseCents } from "@/lib/money";
 import { adjustedAvailability } from "@/lib/control-math";
 import type { SessionUser } from "@/lib/auth";
+import { ensureApprovalAuthority, hasCapability } from "@/lib/governance";
 
 import { ruleError, saleBreakdown } from "@/lib/split-calculation";
 export { nonnegativeCents, percentageCents, ruleError, saleBreakdown } from "@/lib/split-calculation";
@@ -96,9 +97,11 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
     let expected: PayoutStatus;
     if (action === "APPROVE") {
       if (!internal || p.status !== "REQUESTED") return ruleError("Somente o Financeiro pode aprovar solicitações pendentes.");
+      await ensureApprovalAuthority(tx, user, p.type, p.amountCents);
       expected = "REQUESTED"; update = { status: "APPROVED", approvedAt: now, approvedById: user.id };
     } else if (action === "REJECT") {
       if (!internal || !["REQUESTED", "APPROVED"].includes(p.status)) return ruleError("Esta solicitação não pode ser reprovada.");
+      if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de decisão financeira.");
       if (!args.reason || args.reason.trim().length < 8) return ruleError("Informe o motivo da reprovação (mínimo de oito caracteres).");
       expected = p.status; update = { status: "REJECTED", rejectionReason: args.reason.trim(), rejectedAt: now };
     } else if (action === "PRODUCER_ACCEPT") {
@@ -106,9 +109,11 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
       expected = "APPROVED"; update = { status: "PRODUCER_ACCEPTED", producerAcceptedById: user.id, producerAcceptedAt: now };
     } else if (action === "FINANCE_SIGN") {
       if (!internal || p.status !== "PRODUCER_ACCEPTED") return ruleError("O Financeiro só pode assinar após o aceite do produtor.");
+      if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de assinatura financeira.");
       expected = "PRODUCER_ACCEPTED"; update = { status: "READY_TO_SETTLE", financeSignedById: user.id, financeSignedAt: now };
     } else {
       if (!internal || p.status !== "READY_TO_SETTLE") return ruleError("É necessário concluir as aprovações e aceites antes da baixa.");
+      if (!await hasCapability(user, "PAYOUT_SETTLE", tx)) return ruleError("Sem permissão para registrar baixa financeira.");
       if (!args.settlementReference || args.settlementReference.trim().length < 8) return ruleError("Informe a referência de comprovação da transferência já realizada.");
       if (!args.bankAccountId) return ruleError("Selecione a conta da baixa.");
       const account = await tx.bankAccount.updateMany({ where: { id: args.bankAccountId, active: true, balanceCents: { gte: p.amountCents } },

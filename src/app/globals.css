@@ -1,13 +1,84 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-:root { --background: 210 33% 98%; --foreground: 222 47% 11%; --card: 0 0% 100%; --card-foreground: 222 47% 11%; --primary: 222 71% 22%; --primary-foreground: 0 0% 100%; --secondary: 213 28% 94%; --secondary-foreground: 222 47% 18%; --muted: 210 24% 95%; --muted-foreground: 215 16% 46%; --accent: 213 32% 95%; --accent-foreground: 222 45% 20%; --destructive: 0 73% 52%; --destructive-foreground: 0 0% 100%; --border: 214 30% 92%; --input: 214 30% 90%; --ring: 211 80% 63%; --radius: .8rem; }
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
-a { text-decoration: none; }
-::selection { background: #dbeafe; }
-.dashboard-table { width: 100%; text-align: left; border-collapse: collapse; }
-.dashboard-table th { padding: 14px 18px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #64748b; background: #f8fafc; }
-.dashboard-table td { padding: 14px 18px; font-size: 13px; border-top: 1px solid #edf2f7; color: #334155; }
-.dashboard-table tbody tr:hover { background: #f9fbff; }
+
+:root {
+  /* Paleta Oficial BankOS — Fintech Premium */
+  /* Canvas Cinza Claro #EBEBED | Grafite #0F1113 | Cinza Escuro #47505A | Cinza Médio #BBBFC5 | Destaque #E03629 */
+  --background: 240 5% 92.5%;
+  --foreground: 210 12% 6.7%;
+  --card: 0 0% 100%;
+  --card-foreground: 210 12% 6.7%;
+  --primary: 210 12% 6.7%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 9% 90%;
+  --secondary-foreground: 210 12% 6.7%;
+  --muted: 240 5% 94%;
+  --muted-foreground: 212 12% 32%;
+  --accent: 240 5% 94%;
+  --accent-foreground: 210 12% 6.7%;
+  --destructive: 4 74% 52%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 216 8% 75%;
+  --input: 216 8% 80%;
+  --ring: 4 74% 52%;
+  --radius: 1rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background-color: #EBEBED;
+  color: #0F1113;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(224, 54, 41, 0.16);
+  color: #0F1113;
+}
+
+.dashboard-table {
+  width: 100%;
+  text-align: left;
+  border-collapse: collapse;
+}
+
+.dashboard-table th {
+  padding: 14px 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #47505A;
+  background: #F6F6F7;
+  border-bottom: 1px solid rgba(187, 191, 197, 0.45);
+}
+
+.dashboard-table td {
+  padding: 15px 20px;
+  font-size: 13px;
+  border-top: 1px solid rgba(187, 191, 197, 0.32);
+  color: #0F1113;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-table tbody tr {
+  transition: background-color 150ms ease;
+}
+
+.dashboard-table tbody tr:hover {
+  background: rgba(235, 235, 237, 0.55);
+}

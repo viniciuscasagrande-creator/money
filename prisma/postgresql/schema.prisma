@@ -63,6 +63,12 @@ model User {
   reconciledStatements BankStatementLine[] @relation("StatementMatcher")
   createdContracts FinancialContract[]
   createdBudgets BudgetLine[]
+  permissionOverrides UserPermissionOverride[] @relation("PermissionSubject")
+  permissionChanges UserPermissionOverride[] @relation("PermissionChanger")
+  approvalAuthorities ApprovalAuthority[] @relation("AuthoritySubject")
+  authorityChanges ApprovalAuthority[] @relation("AuthorityChanger")
+  settingChanges FinanceSetting[] @relation("SettingChanger")
+  alertAcknowledgements AlertAcknowledgement[]
   createdAt    DateTime @default(now())
 }
 
@@ -434,4 +440,51 @@ model FinancialContract {
   createdBy   User @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   @@index([eventId, status])
+}
+
+
+// Pacote 04 - controle granular (nunca concede privilegios fora do perfil).
+model UserPermissionOverride {
+  id          String @id @default(cuid())
+  userId      String
+  user        User @relation("PermissionSubject", fields: [userId], references: [id], onDelete: Cascade)
+  permission  String
+  allowed     Boolean
+  changedById String?
+  changedBy   User? @relation("PermissionChanger", fields: [changedById], references: [id])
+  updatedAt   DateTime @updatedAt
+  @@unique([userId, permission])
+  @@index([permission])
+}
+
+// Limite monetario individual para aprovacao; ausencia = NEGAR ao Financeiro Interno.
+model ApprovalAuthority {
+  id          String @id @default(cuid())
+  userId      String
+  user        User @relation("AuthoritySubject", fields: [userId], references: [id], onDelete: Cascade)
+  type        PayoutType
+  maxCents    BigInt
+  active      Boolean @default(true)
+  changedById String?
+  changedBy   User? @relation("AuthorityChanger", fields: [changedById], references: [id])
+  updatedAt   DateTime @updatedAt
+  @@unique([userId, type])
+}
+
+model FinanceSetting {
+  key         String @id
+  value       String
+  changedById String?
+  changedBy   User? @relation("SettingChanger", fields: [changedById], references: [id])
+  updatedAt   DateTime @updatedAt
+}
+
+model AlertAcknowledgement {
+  id        String @id @default(cuid())
+  key       String
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([key,userId])
+  @@index([userId,createdAt])
 }

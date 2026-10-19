@@ -41,6 +41,9 @@ for (const kind of ['model','enum']) {
     console.error(`Diferença nos nomes de ${kind} entre SQLite e PostgreSQL.`); errors++;
   }
 }
+if (sqlite.replace('provider = "sqlite"','provider = "postgresql"') !== pg) {
+  console.error('Os schemas diferem além do provider do banco.'); errors++;
+}
 console.log(JSON.stringify({ tsTsxArquivos: source.length,
   prismaModelos: headings(sqlite,'model').length, prismaEnums: headings(sqlite,'enum').length,
   estruturaSQLitePostgres: 'nomes de modelos e enum comparados; sem validação Prisma real',

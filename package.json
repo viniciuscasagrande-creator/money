@@ -1,6 +1,6 @@
 {
-  "name": "financeiro-pacote-03",
-  "version": "3.0.0",
+  "name": "financeiro-pacote-04",
+  "version": "4.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,7 +16,8 @@
     "bootstrap": "tsx scripts/bootstrap.ts",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:homologacao": "node scripts/homologacao-integrada.mjs",
-    "test:static": "node scripts/validacao-estatica.mjs"
+    "test:static": "node scripts/validacao-estatica.mjs",
+    "test:unit:isolado": "node scripts/testes-sem-dependencias.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
@@ -31,6 +32,7 @@
     "next": "^15.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "recharts": "^3.10.1",
     "tailwind-merge": "^2.6.0",
     "zod": "^3.25.0"
   },

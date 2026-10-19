@@ -25,7 +25,7 @@ const PACKAGE_LABELS: Record<ImplementationPackage, string> = {
   P1: "Pacote 01 · Fundação e Operação Básica",
   P2: "Pacote 02 · Operação de Ingressos e Repasses",
   P3: "Pacote 03 · Conciliação, Risco e Governança",
-  P4: "Pacote 04 · Contábil, Fiscal, BI e Contratos",
+  P4: "Pacote 04 · Inteligência, Alertas e Alçadas",
 };
 
 type DashboardSummary = {
@@ -47,6 +47,13 @@ function getOperationalRouteForMenu(menuNumber: string, submenuCode: string): {
   ctaLabel: string;
   moduleName: string;
 } {
+  if (submenuCode === "01.06") {
+    return {
+      href: "/alertas",
+      ctaLabel: "Abrir Central de Alertas e Pendências",
+      moduleName: "Central de Alertas (Pacote 04)",
+    };
+  }
   if (submenuCode === "02.04" || submenuCode === "02.09") {
     return {
       href: "/vendas",
@@ -66,13 +73,13 @@ function getOperationalRouteForMenu(menuNumber: string, submenuCode: string): {
       return {
         href: "/dashboard",
         ctaLabel: "Abrir Painel Executivo & Fluxo de Caixa",
-        moduleName: "Dashboard Financeiro (Pacotes 01–03)",
+        moduleName: "Dashboard Financeiro (Pacotes 01–04)",
       };
     case "02":
       return {
         href: "/recebimentos",
         ctaLabel: "Gerenciar Títulos e Liquidações de Recebíveis",
-        moduleName: "Gestão de Recebimentos (Pacotes 01–03)",
+        moduleName: "Gestão de Recebimentos (Pacotes 01–04)",
       };
     case "03":
       return {
@@ -90,10 +97,9 @@ function getOperationalRouteForMenu(menuNumber: string, submenuCode: string): {
       return {
         href: "/saldos",
         ctaLabel: "Conferir Posições por Produtor/Evento e Razão",
-        moduleName: "Saldos e Posições Financeiras (Pacote 02–03)",
+        moduleName: "Saldos e Posições Financeiras (Pacotes 02–04)",
       };
     case "06":
-    case "15":
       return {
         href: "/repasses",
         ctaLabel: "Gerenciar Solicitações, Alçadas, Aceite e Baixa",
@@ -136,23 +142,34 @@ function getOperationalRouteForMenu(menuNumber: string, submenuCode: string): {
         moduleName: "Gestão de Contratos (Pacote 03)",
       };
     case "13":
-    case "14":
       return {
         href: "/contabilidade",
         ctaLabel: "Abrir Pré-Classificação e Exportação Contábil CSV",
         moduleName: "Contabilidade e Exportação Assistida (Pacote 03)",
       };
+    case "14":
+      return {
+        href: "/relatorios",
+        ctaLabel: "Abrir Relatórios Executivos, Gráficos e CSV",
+        moduleName: "Relatórios e Inteligência Financeira (Pacote 04)",
+      };
+    case "15":
+      return {
+        href: "/governanca",
+        ctaLabel: "Configurar Permissões e Alçadas de Aprovação",
+        moduleName: "Permissões e Alçadas Financeiras (Pacote 04)",
+      };
     case "16":
       return {
         href: "/auditoria",
-        ctaLabel: "Consultar Trilha de Auditoria Imutável",
-        moduleName: "Auditoria e Governança (Pacotes 01–03)",
+        ctaLabel: "Consultar Auditoria Completa Paginada e CSV",
+        moduleName: "Auditoria e Governança (Pacote 04)",
       };
     case "17":
       return {
-        href: "/cadastros",
-        ctaLabel: "Gerenciar Produtores, Eventos e Usuários",
-        moduleName: "Configurações e Cadastros Financeiros",
+        href: "/configuracoes",
+        ctaLabel: "Gerenciar Parâmetros de Alertas e Configurações",
+        moduleName: "Configurações Financeiras (Pacote 04)",
       };
     default:
       return {
@@ -356,31 +373,31 @@ export default function SubmenuSpecificationWorkspacePage({
 
             <div className="grid gap-3 sm:grid-cols-4">
               <Link
-                href="/conciliacao"
+                href="/relatorios"
                 className="flex items-center justify-between rounded-xl border border-slate-200 p-3.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
-                <span>Conciliação Bancária</span>
+                <span>Relatórios Executivos</span>
                 <ArrowRight size={14} className="text-slate-400" />
               </Link>
               <Link
-                href="/ocorrencias"
+                href="/alertas"
                 className="flex items-center justify-between rounded-xl border border-slate-200 p-3.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
-                <span>Estornos & Riscos</span>
+                <span>Central de Alertas</span>
                 <ArrowRight size={14} className="text-slate-400" />
               </Link>
               <Link
-                href="/planejamento"
+                href="/governanca"
                 className="flex items-center justify-between rounded-xl border border-slate-200 p-3.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
-                <span>Planejamento</span>
+                <span>Permissões & Alçadas</span>
                 <ArrowRight size={14} className="text-slate-400" />
               </Link>
               <Link
-                href="/contabilidade"
+                href="/configuracoes"
                 className="flex items-center justify-between rounded-xl border border-slate-200 p-3.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
-                <span>Contabilidade CSV</span>
+                <span>Configurações</span>
                 <ArrowRight size={14} className="text-slate-400" />
               </Link>
             </div>

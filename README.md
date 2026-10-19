@@ -1,21 +1,26 @@
-# ERP Financeiro — Pacote 03 (cumulativo)
+# ERP Financeiro — Pacote 04 (cumulativo)
 
-**Tecnologias:** Next.js 15 + React 19 + TypeScript + Tailwind CSS + shadcn/ui + Node.js + Prisma 6. Os módulos do Pacote 01 e Pacote 02 permanecem incluídos.
+Contém os módulos desenvolvidos nos **Pacotes 01, 02, 03 e 04**. Não substitui o núcleo financeiro nem restaura dados fictícios. **Sem conexão bancária real**, sem execução de transferências, sem assinatura digital certificada e sem estornos externos.
 
-## 1. Novidades
+**Tecnologias:** Next.js 15, React 19, TypeScript, Tailwind CSS 3, componentes shadcn/ui, Node.js 22+ e Prisma 6 (SQLite e PostgreSQL).
 
-- Conciliação manual entre linhas importadas de extrato e razão interno, com referências únicas, sem alterar caixa.
-- Estornos/chargebacks como ocorrências de risco, retendo ou abatendo o direito do produtor por evento.
-- Planejamento orçamentário de receitas e despesas por evento (dados projetados, sem lançamentos reais).
-- Controle documental de contratos.
-- Pré-exportação contábil CSV em partidas sugeridas para revisão.
-- Cinco novos menus disponíveis somente ao Financeiro Interno e Administrador.
+## Novos módulos do Pacote 04
 
-**ATENÇÃO:** este pacote não executa transações bancárias reais, estorno em adquirente, assinatura digital certificada, conciliação automática de arquivo oficial, integração contábil externa ou declarações fiscais.
+| Menu lateral | Acesso | Função |
+|---|---|---|
+| Relatórios Executivos | Administrador, Financeiro Interno e Produtor (visão restrita) | Indicadores, filtro por evento/produtor/período, gráficos, CSV |
+| Central de Alertas | Interno | Títulos vencidos, repasses, riscos e conciliações pendentes; confirmar leitura |
+| Permissões e Alçadas | Administrador | Restrições por usuário e limites de aprovação de repasses e antecipações |
+| Configurações Financeiras | Administrador | Dias-limite para alertas, com auditoria |
+| Auditoria Completa (consulta ampliada) | Administrador | Pesquisa de trilha existente, paginação e CSV |
 
-## 2. Executar um ambiente novo de desenvolvimento no Windows / VS Code
+A pré-exportação contábil continua no menu **Contabilidade / Exportação** (Pacote 03).
 
-Requer Node.js 22+ e npm, internet para instalar as dependências e uma pasta de trabalho local. Extraia o ZIP, abra a pasta raiz no VS Code e execute no PowerShell:
+## 1. Executar no VS Code — base SQLite nova
+
+1. Extraia `financeiro-pacote-04.zip` e abra **a pasta extraída inteira** no VS Code.
+2. Use Node.js 22+ e acesso à internet para instalação inicial.
+3. No PowerShell, execute:
 
 ```powershell
 npm install
@@ -24,74 +29,69 @@ npm run db:generate
 npm run db:push
 ```
 
-`DATABASE_URL="file:./local.db"` mantém os dados em `prisma/local.db`. Configure `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` e `BOOTSTRAP_ADMIN_NAME` **somente na sessão atual de terminal**, não registre credenciais em arquivos versionados, e execute:
+O comando `db:push` acima só deve ser usado em uma **base nova ou descartável**. O padrão do `.env.example` é `DATABASE_URL="file:./local.db"`, com banco em `prisma/local.db`. Não execute em bases existentes sem backup e migração aprovada.
+
+Configure no ambiente as variáveis `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` (senha forte, pelo menos 12 caracteres) e `BOOTSTRAP_ADMIN_NAME`; veja `scripts/bootstrap.ts`. Não suba `.env` para Git. Execute:
 
 ```powershell
 npm run bootstrap
 npm run dev
 ```
 
-Acesse `http://localhost:3000`. A base nova deve iniciar sem dados financeiros preenchidos. Crie seus produtores, eventos e taxas de homologação manualmente.
+Acesse `http://localhost:3000` e entre com o administrador cadastrado. Todos os dados financeiros partem vazios, sem simulações.
 
-## 3. Banco PostgreSQL
+## 2. PostgreSQL
 
-Use conexão PostgreSQL em `DATABASE_URL` e os comandos:
+Use a URL PostgreSQL segura no ambiente (não compartilhar credenciais). Para **nova base descartável**:
 
 ```powershell
 npm run db:generate:pg
 npm run db:push:pg
+npm run bootstrap
+npm run dev
 ```
 
-**Somente em banco de desenvolvimento descartável.** No banco existente ou em produção, faça backup + restauração de ensaio e gere uma **migração Prisma versionada e revisada** para os novos modelos antes de executar. Os comandos `db:push` não são processo adequado para upgrade de produção.
+**Banco existente:** faça backup e teste restauração; verifique as quatro tabelas novas com `prisma migrate diff`, prepare migração versionada e passe por homologação antes de aplicar em produção. O Prisma Client deve ser regenerado após troca de provider.
 
-O cliente Prisma é gerado para o último schema selecionado. Não alterne entre SQLite e PostgreSQL usando a mesma instância sem regenerá-lo.
+## 3. Operação inicial do Pacote 04
 
-## 4. Testar
+1. No menu **Cadastros e Acessos**, cadastre usuários e produtores; a área administrativa é exclusiva de ADMIN.
+2. Em **Permissões e Alçadas**, selecione um usuário do Financeiro Interno, o tipo **REPASSE** ou **ANTECIPACAO** e defina o limite em reais. Ausência de alçada bloqueia aprovações por usuários `FINANCE_DISK`.
+3. Em **Relatórios Executivos**, selecione período e escopo para consultar vendas, direitos e repasses. O Produtor vê apenas seus eventos, sem custos MDR/taxas internas. Exportação CSV disponível.
+4. Em **Central de Alertas**, consulte as pendências. A confirmação de leitura não baixa nem aprova uma operação.
+5. Em **Configurações Financeiras**, defina os limites em dias de cada alerta.
+6. Em **Auditoria Completa**, filtre as atividades e exporte CSV para análise.
 
-Com dependências:
+O Admin é exceção às alçadas individuais; essa atuação permanece registrada no histórico. As telas do Pacote 04 usam dados persistidos pelos Pacotes 01–03.
+
+## 4. Homologação obrigatória (não movimenta dinheiro real)
+
+Execute em um projeto com dependências instaladas:
 
 ```powershell
-npm run db:generate
 npm run typecheck
 npm test
 npm run build
-```
-
-Para executar validação isolada e cenário HTTP/Prisma em SQLite temporário no Windows (sem tocar no banco local ou produção):
-
-```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\homologacao-local.ps1
 ```
 
-O script cria um SQLite temporário, instancia usuários de homologação, roda testes de cadastro, acesso, venda, repasse, saldos, conciliação, ocorrências, orçamento, contratos e pré-exportação contábil. Depois remove o banco temporário. A execução E2E **ainda não foi confirmada neste ambiente de geração**.
+O script abre uma **base SQLite temporária exclusiva**, cria usuários sintéticos, testa isolamento entre dois produtores, registros financeiros, taxas, limites de aprovação, conciliação, riscos, relatórios, governança, auditoria e descarte da base. Ele só roda com URL `localhost`, variável `ISOLATED_HOMOLOGATION=SIM` e identificador temporário. Consulte `homologacao/PLANO_PACOTE_04.md`.
 
-Sem npm instalado, apenas para revisão de lógica pura, execute `node scripts/validacao-estatica.mjs` e `node scripts/testes-sem-dependencias.mjs` caso haja TypeScript global.
+Sem dependências, uma avaliação parcial pode rodar com TypeScript global:
 
-## 5. Fluxo resumido de uso
+```powershell
+node scripts/validacao-estatica.mjs
+node scripts/testes-sem-dependencias.mjs
+```
 
-1. Acesse com um usuário **Financeiro Interno**.
-2. Cadastre produtores, eventos, gateways, MDR e taxa por evento; registre vendas e liquide recebíveis apenas quando confirmado.
-3. Cadastre contas internas e observe os saldos.
-4. Em **Conciliação Bancária**, registre uma linha de extrato e faça vínculo com um lançamento do razão da mesma conta, sinal e valor.
-5. Em **Estornos e Chargebacks**, escolha uma venda, registre o impacto cautelar do produtor, confirme ou rejeite. Consulte como o bloqueio altera os limites em **Saldos** e **Repasses**.
-6. Crie orçamentos e contratos sem afetar caixa.
-7. Em **Contabilidade / Exportação**, selecione período de até 93 dias e exporte CSV para análise contábil.
+**Importante:** esses testes parciais não garantem que o Next.js/Prisma execute corretamente.
 
-## 6. Controles de acesso
+## 5. Limites reais do pacote
 
-| Tela/ação | Administrador | Financeiro Interno | Produtor |
-| --- | --- | --- | --- |
-| Extratos bancários / conciliação | Sim | Sim | Não |
-| Ocorrências de risco | Sim | Sim | Não |
-| Contratos, orçamentos | Sim | Sim | Não |
-| Pré-exportação contábil | Sim | Sim | Não |
-| Saldo informacional próprio | Sim (todos) | Sim (todos) | Somente seus eventos |
-| Taxas/MDR e receita própria | Sim | Sim | Não |
+- Relatórios agregados **não são demonstrativos fiscais ou fechamentos contábeis**; datas por registro, status atuais.
+- Auditoria usa trilha de dados da aplicação; **não é registro criptograficamente imutável** ou conformidade regulatória certificada.
+- Alertas são consultas sob demanda; **não existe agendamento ou envio automático de mensagens**.
+- Sem movimentação bancária automática, execução externa de estorno, assinatura digital certificada, conciliação automática de arquivos reais, integração de ERP contábil ou homologação de produção.
+- Falta validar build/typecheck/Prisma/E2E: não liberações operações financeiras reais com base somente na criação deste pacote.
 
-O Produtor não recebe novas permissões internas neste pacote.
-
-## 7. Status desta entrega
-
-Foi executada uma validação **sintática** da árvore TS/TSX e foram aprovados **13 testes matemáticos isolados**, incluindo os novos cenários de disponibilidade e conciliação. **Não foi possível executar `npm install`, `prisma validate`, `prisma db push`, `typecheck`, `next build` ou os testes reais HTTP/Prisma nesta sessão**; faltam instalação das dependências e homologação de banco antes de aprovação operacional.
-
-Consulte `ARQUITETURA_PACOTE_03.md` e `homologacao/PLANO_PACOTE_03.md` para detalhes.
+Consulte `ARQUITETURA_PACOTE_04.md` para detalhes técnicos e as arquiteturas anteriores para a continuidade dos três pacotes originais.
