@@ -12,16 +12,18 @@ export async function registerSale(raw: {
   eventId: string; externalReference: string; mdrRuleId: string; unitPriceCents: string; quantity: number
 }, user: SessionUser) {
   return prisma.$transaction(async tx => {
-    const [event, mdr, fee] = await Promise.all([
+    const [event, mdr, fee, extraFixedSetting] = await Promise.all([
       tx.event.findUnique({ where: { id: raw.eventId }, include: { producer: { select: { active: true } } } }),
       tx.mdrRule.findUnique({ where: { id: raw.mdrRuleId }, include: { gateway: true, brand: true } }),
-      tx.eventFeePolicy.findUnique({ where: { eventId: raw.eventId } })
+      tx.eventFeePolicy.findUnique({ where: { eventId: raw.eventId } }),
+      tx.financeSetting.findUnique({ where: { key: `fee_fixed_extra:${raw.eventId}` } })
     ]);
     if (!event || !event.producer.active || event.status === "CLOSED") return ruleError("Evento indisponível.");
     if (!mdr || !mdr.active || !mdr.gateway.active || !mdr.brand.active) return ruleError("Regra de MDR indisponível.");
     if (!fee || !fee.active) return ruleError("Configure primeiro a taxa da Disk para este evento.");
+    const extraFixedCents = extraFixedSetting?.value && /^\d+$/.test(extraFixedSetting.value) ? BigInt(extraFixedSetting.value) : 0n;
     const parts = saleBreakdown({ unitPriceCents: parseCents(raw.unitPriceCents), quantity: raw.quantity,
-      feeMode: fee.mode, feeValue: fee.value, mdrRateBps: mdr.rateBps, mdrFixedCents: mdr.fixedCents, producerPaysMdr: fee.producerPaysMdr });
+      feeMode: fee.mode, feeValue: fee.value, feeExtraFixedCents: extraFixedCents, mdrRateBps: mdr.rateBps, mdrFixedCents: mdr.fixedCents, producerPaysMdr: fee.producerPaysMdr });
     const title = await tx.financialTitle.create({ data: {
       kind: "RECEIVABLE", description: `Liquidação adquirente · ${raw.externalReference}`,
       amountCents: parts.netSettlement, producerId: event.producerId, eventId: event.id, createdById: user.id

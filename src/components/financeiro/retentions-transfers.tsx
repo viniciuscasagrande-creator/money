@@ -21,6 +21,7 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
  const transfers=useApi<{items:Transfer[]}>("/api/financeiro/transferencias");
  const permissions=useApi<{items:Permission[];producers?:ProducerOption[]}>("/api/financeiro/permissoes-transferencia");
  const [event,setEvent]=useState(""),[dest,setDest]=useState(""),[purpose,setPurpose]=useState(""),[amount,setAmount]=useState(""),[reason,setReason]=useState("");
+ const [retMode,setRetMode]=useState<"FIXED"|"PERCENT">("FIXED"),[retPct,setRetPct]=useState("5,00");
  const [producer,setProducer]=useState(""),[limit,setLimit]=useState(""),[enabled,setEnabled]=useState(false);
  const [busy,setBusy]=useState(false),[message,setMessage]=useState("");
  const [justificationModal,setJustificationModal]=useState<{kind:"RELEASE_RESERVE"|"REJECT_TRANSFER";id:string;label:string}|null>(null);
@@ -56,7 +57,20 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
 
  async function send(e:FormEvent){e.preventDefault();setBusy(true);setMessage("");try {
   const endpoint=mode==="retencoes"?"/api/financeiro/retencoes":"/api/financeiro/transferencias";
-  const body=mode==="retencoes"?{eventId:event,purpose,amountCents:parseBRLToCents(amount)}:
+  let computedAmountCents = "";
+  let computedPurpose = purpose;
+  if (mode === "retencoes" && retMode === "PERCENT") {
+   const normalized = retPct.replace(",", ".");
+   const [whole, dec = ""] = normalized.split(".");
+   const bps = Number(whole) * 100 + Number((dec + "00").slice(0, 2));
+   const baseCents = BigInt(source?.repasseCents || "0");
+   const calc = (baseCents * BigInt(bps) + 5000n) / 10000n;
+   computedAmountCents = calc > 0n ? calc.toString() : parseBRLToCents(amount || "1,00");
+   computedPurpose = `${purpose} (${retPct}%)`;
+  } else {
+   computedAmountCents = parseBRLToCents(amount);
+  }
+  const body=mode==="retencoes"?{eventId:event,purpose:computedPurpose,amountCents:computedAmountCents}:
    {originEventId:event,destinationEventId:dest,amountCents:parseBRLToCents(amount),reason};
   await api(endpoint,{method:"POST",body:JSON.stringify(body)});
   setAmount("");setReason("");setPurpose("");setMessage("Registro criado. Indicadores atualizados.");
@@ -81,7 +95,7 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
 
  return <>
  <PageHeading eyebrow="Financeiro · Controle por evento" title={mode==="retencoes"?"Retenções Obrigatórias":"Transferências entre Eventos"}
- subtitle={mode==="retencoes"?"Proteja compromissos de ECAD, aluguel, tributos e custos do evento; somente o Financeiro pode alterar reservas.":"Transfira posições internamente entre eventos do mesmo produtor, com reserva de origem, permissão e aprovação interna."}
+ subtitle={mode==="retencoes"?"Proteja compromissos de ECAD, aluguel, tributos e custos do evento (em % ou valor fixo R$); somente o Financeiro pode alterar reservas.":"Transfira posições internamente entre eventos do mesmo produtor, com reserva de origem, permissão e aprovação interna."}
  action={<div className="flex flex-wrap gap-2">
   <Link href={mode==="retencoes"?"/transferencias":"/retencoes"} className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50">{mode==="retencoes"?"Ir para Transferências entre Eventos":"Ir para Retenções Obrigatórias"}</Link>
   <Link href="/repasses" className="inline-flex h-10 items-center rounded-xl bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800">Voltar para Repasses & Central de 20 Travas</Link>
@@ -114,12 +128,16 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
  {payouts.error&&<ErrorNotice message={payouts.error} retry={payouts.reload}/>}
  {(payouts.loading||transfers.loading)&&<Loading/>}
  <div className="grid gap-4 lg:grid-cols-2">
-  <Card className="p-5"><h2 className="mb-4 text-lg font-semibold">{mode==="retencoes"?"Nova retenção":"Solicitar transferência"}</h2>
+  <Card className="p-5"><h2 className="mb-4 text-lg font-semibold">{mode==="retencoes"?"Nova retenção (% ou R$)":"Solicitar transferência"}</h2>
    {mode==="retencoes"&&!internal?<p>Área restrita ao Financeiro Interno.</p>:<form onSubmit={send} className="space-y-3">
     <label className="block text-sm">Evento de {mode==="retencoes"?"retenção":"origem"}</label>
     <select required className="w-full rounded-xl border border-slate-200 p-3" value={event} onChange={e=>{setEvent(e.target.value);setDest("");}}><option value="">Selecione o evento</option>{origins.map(e=><option key={e.id} value={e.id}>{e.name} · disponível {fmtBRL(e.repasseCents)}</option>)}</select>
-    {mode==="transferencias"?<><label className="block text-sm">Evento de destino (mesmo produtor)</label><select required className="w-full rounded-xl border border-slate-200 p-3" value={dest} onChange={e=>setDest(e.target.value)}><option value="">Selecione destino</option>{destinations.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select><label className="block text-sm">Justificativa</label><Input required minLength={8} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Motivo operacional da transferência interna"/></>:<><label className="block text-sm">Finalidade (ECAD, aluguel etc.)</label><Input required minLength={3} value={purpose} onChange={e=>setPurpose(e.target.value)} placeholder="Ex.: Retenção ECAD / Locação de espaço"/></>}
-    <label className="block text-sm">Valor (R$)</label><Input required value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00"/>
+    {mode==="transferencias"?<><label className="block text-sm">Evento de destino (mesmo produtor)</label><select required className="w-full rounded-xl border border-slate-200 p-3" value={dest} onChange={e=>setDest(e.target.value)}><option value="">Selecione destino</option>{destinations.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select><label className="block text-sm">Justificativa</label><Input required minLength={8} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Motivo operacional da transferência interna"/><label className="block text-sm">Valor (R$)</label><Input required value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00"/></>:<><label className="block text-sm">Finalidade (ECAD, aluguel, ISS etc.)</label><Input required minLength={3} value={purpose} onChange={e=>setPurpose(e.target.value)} placeholder="Ex.: Retenção ECAD / Locação de espaço"/>
+    <div className="grid grid-cols-2 gap-2 pt-1">
+     <button type="button" onClick={()=>setRetMode("FIXED")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${retMode==="FIXED"?"border-slate-900 bg-slate-900 text-white":"border-slate-200 bg-white text-slate-700"}`}>Valor Fixo (R$)</button>
+     <button type="button" onClick={()=>setRetMode("PERCENT")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${retMode==="PERCENT"?"border-slate-900 bg-slate-900 text-white":"border-slate-200 bg-white text-slate-700"}`}>Percentual (%)</button>
+    </div>
+    {retMode==="PERCENT"?<><label className="block text-sm">Percentual sobre o saldo do evento (%)</label><Input required value={retPct} onChange={e=>setRetPct(e.target.value)} placeholder="Ex.: 5,00"/></>:<><label className="block text-sm">Valor Fixo (R$)</label><Input required value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00"/></>}</>}
     <Button type="submit" disabled={busy}>{busy?"Salvando...":mode==="retencoes"?"Criar retenção":"Solicitar transferência"}</Button>
    </form>}
   </Card>

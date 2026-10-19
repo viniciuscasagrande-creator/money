@@ -7,7 +7,7 @@ export type GatewayItem = { id: string; name: string; active: boolean };
 export type RuleItem = { id: string; gatewayId: string; gatewayName: string; brandId: string; brandName: string;
   installments: number; rateBps: number; fixedCents: string; active: boolean };
 export type FeeItem = { id: string; eventId: string; eventName: string; producerName: string; mode: "PERCENT_BPS" | "FIXED_PER_TICKET";
-  value: string; producerPaysMdr: boolean; active: boolean };
+  value: string; extraFixedCents?: string; producerPaysMdr: boolean; active: boolean };
 export type Catalog = { gateways: GatewayItem[]; brands: GatewayItem[]; rules: RuleItem[]; fees: FeeItem[];
   events: { id: string; name: string; producerName: string; producerId: string; status: string }[] };
 export const inputClass = "flex h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100";

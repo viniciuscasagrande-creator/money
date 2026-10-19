@@ -90,7 +90,9 @@ export function PayoutLocksPanel({ onChanged }: { onChanged?: () => void }) {
   const [retDoc, setRetDoc] = useState("");
   const [retOwner, setRetOwner] = useState("Financeiro SOUL");
   const [retDueDate, setRetDueDate] = useState("");
+  const [retCalcMode, setRetCalcMode] = useState<"FIXED" | "PERCENT">("FIXED");
   const [retAmount, setRetAmount] = useState("");
+  const [retPercent, setRetPercent] = useState("10,00");
 
   // Policy form state
   const [polActive, setPolActive] = useState(true);
@@ -133,6 +135,7 @@ export function PayoutLocksPanel({ onChanged }: { onChanged?: () => void }) {
   const [simCriticalRisk, setSimCriticalRisk] = useState(false);
 
   const internal = data?.role !== "PRODUCER";
+  const selectedRetEv = data?.events.find(ev => ev.id === retEventId);
 
   function openPolicyModal(ev: TravasEvent) {
     setMsg("");
@@ -170,18 +173,26 @@ export function PayoutLocksPanel({ onChanged }: { onChanged?: () => void }) {
     setBusy(true);
     setMsg("");
     try {
+      let computedAmountCents = "0";
+      if (retCalcMode === "PERCENT") {
+        const bps = BigInt(percentToBps(retPercent));
+        const baseCents = BigInt(selectedRetEv?.settledCents ?? "0");
+        computedAmountCents = ((baseCents * bps + 5000n) / 10000n).toString();
+      } else {
+        computedAmountCents = nonnegativeBRLInput(retAmount);
+      }
       await api("/api/repasses/travas", {
         method: "POST",
         body: JSON.stringify({
           kind: "RETENTION_CREATE",
           eventId: retEventId,
           category: retCategory,
-          description: retDesc,
+          description: retCalcMode === "PERCENT" ? `${retDesc} (${retPercent}% sobre liquidado)` : retDesc,
           beneficiary: retBeneficiary,
           documentRef: retDoc,
           ownerName: retOwner,
           dueDate: retDueDate || null,
-          amountCents: nonnegativeBRLInput(retAmount)
+          amountCents: computedAmountCents
         })
       });
       setRetDesc("");
@@ -781,9 +792,42 @@ export function PayoutLocksPanel({ onChanged }: { onChanged?: () => void }) {
             <Field label="Vencimento previsto">
               <Input type="date" value={retDueDate} onChange={e => setRetDueDate(e.target.value)} />
             </Field>
-            <Field label="Valor retido (R$)">
-              <Input required value={retAmount} onChange={e => setRetAmount(e.target.value)} placeholder="12000,00" />
-            </Field>
+            <div className="space-y-1.5">
+              <span className="text-xs font-medium text-slate-600">Modalidade da retenção / taxa do evento</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRetCalcMode("FIXED")}
+                  className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition-all ${
+                    retCalcMode === "FIXED"
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Valor Fixo (R$)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRetCalcMode("PERCENT")}
+                  className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition-all ${
+                    retCalcMode === "PERCENT"
+                      ? "border-emerald-700 bg-emerald-700 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Percentual (%)
+                </button>
+              </div>
+            </div>
+            {retCalcMode === "FIXED" ? (
+              <Field label="Valor retido fixo (R$)">
+                <Input required value={retAmount} onChange={e => setRetAmount(e.target.value)} placeholder="12000,00" />
+              </Field>
+            ) : (
+              <Field label={`Percentual sobre saldo liquidado (%)${selectedRetEv ? ` · Base: ${fmtBRL(selectedRetEv.settledCents)}` : ""}`}>
+                <Input required value={retPercent} onChange={e => setRetPercent(e.target.value)} placeholder="10,00" />
+              </Field>
+            )}
             <div className="flex justify-end gap-2 sm:col-span-2">
               <Button type="button" variant="outline" onClick={() => setRetentionModal(false)}>Cancelar</Button>
               <Button disabled={busy || !retEventId}>{busy ? "Salvando..." : "Registrar retenção"}</Button>

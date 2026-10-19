@@ -62,4 +62,21 @@ test("memória de cálculo completa inclui canal POS/Online, Spread, Advanced e 
   assert.equal(ext.memory.channel, "POS");
   assert.equal(ext.memory.soulAdminFeeCents, "2000");
 });
+test("taxa por evento híbrida (Percentual % + Valor Fixo R$ por ingresso) soma ambos os componentes", () => {
+  const result = saleBreakdown({
+    unitPriceCents: 10000n, // R$ 100,00
+    quantity: 2, // 2 ingressos = R$ 200,00 bruto
+    feeMode: "PERCENT_BPS",
+    feeValue: 1000n, // 10% = R$ 20,00
+    feeExtraFixedCents: 250n, // + R$ 2,50 por ingresso = R$ 5,00
+    mdrRateBps: 200, // 2% = R$ 4,00
+    mdrFixedCents: 0n,
+    producerPaysMdr: true
+  });
+  assert.equal(result.gross, 20000n);
+  assert.equal(result.fee, 2500n); // R$ 20,00 (10%) + R$ 5,00 (2 x R$ 2,50) = R$ 25,00
+  assert.equal(result.producerNet, 17100n); // R$ 200,00 - R$ 25,00 - R$ 4,00 = R$ 171,00
+  assert.equal(result.diskNet, 2500n);
+});
+
 
