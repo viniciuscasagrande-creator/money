@@ -21,7 +21,9 @@ const endpoints = [
   "/api/inteligencia/catalogo",
   "/api/inteligencia/relatorios?inicio=2026-01-01&fim=2026-12-31&agrupar=PRODUCER",
   "/api/governanca/configuracoes",
-  "/api/governanca/auditoria"
+  "/api/governanca/auditoria",
+  "/api/repasses/travas",
+  "/api/contabilidade"
 ];
 for (const path of endpoints) {
   const r = await fetch(`${base}${path}`, { headers: { Cookie: cookie } });
