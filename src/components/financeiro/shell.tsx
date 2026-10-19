@@ -30,6 +30,8 @@ const groups: MenuGroup[] = [
     { label: "Contas a pagar", url: "/pagamentos", icon: ArrowUpFromLine },
     { label: "Saldos e posições", url: "/saldos", icon: Layers3 },
     { label: "Repasses, travas e ECAD", url: "/repasses", icon: ArrowLeftRight },
+    { label: "Retenções obrigatórias", url: "/retencoes", icon: ShieldCheck, internal: true },
+    { label: "Transferências entre eventos", url: "/transferencias", icon: GitCompareArrows },
     { label: "Tesouraria e bancos", url: "/contas", icon: Landmark, internal: true }
   ]},
   { title: "OPERAÇÕES E CONTROLE", items: [

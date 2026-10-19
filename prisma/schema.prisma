@@ -96,6 +96,7 @@ model Producer {
   payouts   PayoutRequest[]
   riskCases RiskCase[]
   contracts FinancialContract[]
+  transferPermission ProducerTransferPermission?
   createdAt DateTime @default(now())
 }
 
@@ -113,6 +114,9 @@ model Event {
   riskCases RiskCase[]
   contracts FinancialContract[]
   budgets BudgetLine[]
+  reserves EventReserve[]
+  transfersOut EventTransfer[] @relation("TransferOrigin")
+  transfersIn EventTransfer[] @relation("TransferDestination")
   createdAt  DateTime @default(now())
   @@index([producerId])
 }
@@ -566,5 +570,58 @@ model AccountingPosting {
   producerId String?
   @@index([accountId])
   @@index([eventId])
+}
+
+// SOUL v5.2 — reservas financeiras com finalidade e transferências internas auditáveis.
+enum ReserveStatus {
+  ACTIVE
+  RELEASED
+}
+enum TransferStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  EXECUTED
+}
+model EventReserve {
+  id String @id @default(cuid())
+  eventId String
+  event Event @relation(fields: [eventId], references: [id])
+  purpose String
+  amountCents BigInt
+  status ReserveStatus @default(ACTIVE)
+  createdById String
+  createdAt DateTime @default(now())
+  releasedAt DateTime?
+  releaseReason String?
+  @@index([eventId, status])
+}
+model EventTransfer {
+  id String @id @default(cuid())
+  producerId String
+  originEventId String
+  destinationEventId String
+  originEvent Event @relation("TransferOrigin", fields: [originEventId], references: [id])
+  destinationEvent Event @relation("TransferDestination", fields: [destinationEventId], references: [id])
+  amountCents BigInt
+  reason String
+  status TransferStatus @default(REQUESTED)
+  requestedById String
+  approvedById String?
+  executedById String?
+  createdAt DateTime @default(now())
+  approvedAt DateTime?
+  executedAt DateTime?
+  rejectedAt DateTime?
+  rejectionReason String?
+  @@index([originEventId, status])
+  @@index([producerId, createdAt])
+}
+model ProducerTransferPermission {
+  producerId String @id
+  producer Producer @relation(fields: [producerId], references: [id])
+  enabled Boolean @default(false)
+  maxPerTransferCents BigInt @default(0)
+  updatedAt DateTime @updatedAt
 }
 

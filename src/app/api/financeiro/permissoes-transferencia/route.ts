@@ -1,0 +1,15 @@
+import {NextRequest,NextResponse} from "next/server";
+import {z} from "zod";
+import {authorize,fail} from "@/lib/auth";
+import {prisma} from "@/lib/prisma";
+import {apiCatch} from "@/lib/validation";
+export const runtime="nodejs";
+export async function GET(req:NextRequest){const {error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error)return error;
+ const items=await prisma.producerTransferPermission.findMany({include:{producer:{select:{name:true}}}});return NextResponse.json({items:items.map(p=>({producerId:p.producerId,name:p.producer.name,enabled:p.enabled,maxPerTransferCents:p.maxPerTransferCents.toString()}))});}
+export async function POST(req:NextRequest){const {user,error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
+ try{const v=z.object({producerId:z.string().min(1),enabled:z.boolean(),maxPerTransferCents:z.string().regex(/^\d{1,16}$/)}).strict().parse(await req.json());
+ const permission=await prisma.$transaction(async tx=>{const prod=await tx.producer.findUnique({where:{id:v.producerId}});if(!prod)throw new Error("REGRA:Produtor inexistente.");
+ const p=await tx.producerTransferPermission.upsert({where:{producerId:v.producerId},create:{producerId:v.producerId,enabled:v.enabled,maxPerTransferCents:BigInt(v.maxPerTransferCents)},update:{enabled:v.enabled,maxPerTransferCents:BigInt(v.maxPerTransferCents)}});
+ await tx.auditLog.create({data:{actorId:user.id,entity:"ProducerTransferPermission",entityId:v.producerId,action:"TRANSFER_PERMISSION_CHANGED",summary:`Permissão de transferência ${v.enabled?"ativada":"desativada"} para o produtor.`}});return p;
+ });return NextResponse.json({producerId:permission.producerId});}catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
+}

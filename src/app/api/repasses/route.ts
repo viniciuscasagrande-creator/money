@@ -14,9 +14,9 @@ export async function GET(request: NextRequest) {
     prisma.payoutRequest.findMany({ where: internal ? {} : { producerId: user.producerId! },
       include: { producer: { select: { name: true } }, event: { select: { name: true } } }, take: 100, orderBy: { createdAt: "desc" } }),
     prisma.event.findMany({ where: internal ? {} : { producerId: user.producerId! },
-      orderBy: { name: "asc" }, select: { id: true, name: true, producerId: true } })
+      orderBy: { name: "asc" }, select: { id: true, name: true, producerId: true, producer: { select: { name: true } } } })
   ]);
-  const balances = await Promise.all(events.map(async e => ({ ...eventAvailabilityDTO(e.id, e.name, await eventAvailability(prisma, e.id)), producerId: e.producerId })));
+  const balances = await Promise.all(events.map(async e => ({ ...eventAvailabilityDTO(e.id, e.name, await eventAvailability(prisma, e.id)), producerId: e.producerId, producerName: e.producer.name })));
   return NextResponse.json({ items: payouts.map(p => payoutDTO(p, internal)), events: balances, role: user.role });
 }
 export async function POST(request: NextRequest) {

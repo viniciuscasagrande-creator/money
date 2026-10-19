@@ -246,6 +246,18 @@ export function PayoutsPage() {
         }
         action={
           <div className="flex flex-wrap gap-2">
+            <Link
+              href="/retencoes"
+              className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              Retenções por Evento
+            </Link>
+            <Link
+              href="/transferencias"
+              className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              Transferências entre Eventos
+            </Link>
             {isAdmin && (
               <Button
                 variant="outline"

@@ -42,6 +42,7 @@ export async function registerSale(raw: {
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
+import { repasseAvailable } from "@/lib/retention-math";
 import {
   evaluateEventPolicy,
   loadEventLockPolicy,
@@ -55,18 +56,28 @@ import {
 type Db = Prisma.TransactionClient;
 const reservedStatuses: PayoutStatus[] = ["REQUESTED", "APPROVED", "PRODUCER_ACCEPTED", "READY_TO_SETTLE", "SETTLED"];
 export async function eventAvailability(tx: Db, eventId: string) {
-  const [total, settled, reserved, exposure, retentions, lockPolicy, allTransfers] = await Promise.all([
+  const [total, settled, reserved, exposure, reserves, transfersRequested, transfersExecuted, transfersExecutedIn, retentions, lockPolicy, allTransfers] = await Promise.all([
     tx.financialSale.aggregate({ where: { eventId }, _sum: { producerNetCents: true, grossCents: true, quantity: true } }),
     tx.financialSale.aggregate({ where: { eventId, status: "SETTLED" }, _sum: { producerNetCents: true } }),
     tx.payoutRequest.aggregate({ where: { eventId, status: { in: reservedStatuses } }, _sum: { amountCents: true } }),
     tx.riskCase.groupBy({ by: ["status"], where: { eventId, status: { in: ["OPEN", "CONFIRMED"] } }, _sum: { exposureCents: true } }),
+    tx.eventReserve.aggregate({ where: { eventId, status: "ACTIVE" }, _sum: { amountCents: true } }),
+    tx.eventTransfer.aggregate({ where: { originEventId: eventId, status: { in: ["REQUESTED", "APPROVED"] } }, _sum: { amountCents: true } }),
+    tx.eventTransfer.aggregate({ where: { originEventId: eventId, status: "EXECUTED" }, _sum: { amountCents: true } }),
+    tx.eventTransfer.aggregate({ where: { destinationEventId: eventId, status: "EXECUTED" }, _sum: { amountCents: true } }),
     loadEventRetentions(tx, eventId),
     loadEventLockPolicy(tx, eventId),
     loadEventTransfers(tx)
   ]);
-  const mandatoryRetentions = sumActiveRetentionsCents(retentions);
+  const prismaReserveCents = reserves._sum.amountCents ?? 0n;
+  const policyRetentionsCents = sumActiveRetentionsCents(retentions);
+  const reserveCents = prismaReserveCents + policyRetentionsCents;
   const transferMovements = sumEventTransferMovementsCents(allTransfers, eventId);
-  const totalCommitted = (reserved._sum.amountCents ?? 0n) + transferMovements.reservedOrExecutedOutCents;
+  const transferReservedCents = transfersRequested._sum.amountCents ?? 0n;
+  const transferExecutedCents = (transfersExecuted._sum.amountCents ?? 0n) + transferMovements.reservedOrExecutedOutCents;
+  const transferInCents = (transfersExecutedIn._sum.amountCents ?? 0n) + transferMovements.executedInCents;
+  const reservedPayoutsCents = reserved._sum.amountCents ?? 0n;
+  const totalCommitted = reservedPayoutsCents + transferReservedCents + transferExecutedCents;
   const openExposure = exposure.find(r => r.status === "OPEN")?._sum.exposureCents ?? 0n;
   const confirmedExposure = exposure.find(r => r.status === "CONFIRMED")?._sum.exposureCents ?? 0n;
   const base = adjustedAvailability({
@@ -75,7 +86,7 @@ export async function eventAvailability(tx: Db, eventId: string) {
     committed: totalCommitted,
     openExposure,
     confirmedExposure,
-    mandatoryRetentions
+    mandatoryRetentions: reserveCents
   });
   const lockEvaluation = evaluateEventPolicy({
     policy: lockPolicy,
@@ -86,15 +97,29 @@ export async function eventAvailability(tx: Db, eventId: string) {
     soldTicketsCount: total._sum.quantity ?? 0,
     openRiskCents: openExposure,
     confirmedLossCents: confirmedExposure,
-    committedPayoutsCents: totalCommitted
+    committedPayoutsCents: totalCommitted + prismaReserveCents
   });
-  const effectiveRepasseCents = lockPolicy.active ? lockEvaluation.maxNewRequestCents : base.repasseCents;
-  const internalPositionCents = (base.settledCents > totalCommitted ? base.settledCents - totalCommitted : 0n) + transferMovements.executedInCents;
+  const allowed = repasseAvailable({
+    settled: base.settledCents,
+    committed: reservedPayoutsCents,
+    riskBlocked: openExposure,
+    reserve: reserveCents,
+    transferReserved: transferReservedCents,
+    transferExecuted: transferExecutedCents,
+    policyCeiling: lockPolicy.active ? lockEvaluation.maxNewRequestCents : undefined
+  });
+  const deduction = reserveCents + transferReservedCents + transferExecutedCents;
+  const settledRaw = (settled._sum.producerNetCents ?? 0n) - confirmedExposure - reservedPayoutsCents - openExposure - deduction;
+  const internalPositionCents = (base.settledCents > totalCommitted ? base.settledCents - totalCommitted : 0n) + transferInCents;
   return {
     ...base,
-    repasseCents: effectiveRepasseCents,
-    transferOutCents: transferMovements.reservedOrExecutedOutCents,
-    transferInCents: transferMovements.executedInCents,
+    repasseCents: allowed,
+    reserveCents,
+    transferReservedCents,
+    transferExecutedCents,
+    transferMarginCents: settledRaw,
+    transferOutCents: transferReservedCents + transferExecutedCents,
+    transferInCents,
     internalPositionCents,
     outgoingTransferCount: transferMovements.outgoingCount,
     retentions,
@@ -106,6 +131,8 @@ export const eventAvailabilityDTO = (id: string, name: string, a: Awaited<Return
   id, name, totalCents: a.totalCents.toString(), settledCents: a.settledCents.toString(),
   committedCents: a.committedCents.toString(), blockedCents: a.blockedCents.toString(),
   retainedCents: a.retainedCents.toString(),
+  reserveCents: a.reserveCents.toString(),
+  transferReservedCents: a.transferReservedCents.toString(),
   transferOutCents: a.transferOutCents.toString(),
   transferInCents: a.transferInCents.toString(),
   internalPositionCents: a.internalPositionCents.toString(),
