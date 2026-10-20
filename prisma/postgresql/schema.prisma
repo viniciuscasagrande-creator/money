@@ -117,6 +117,7 @@ model Event {
   reserves EventReserve[]
   transfersOut EventTransfer[] @relation("TransferOrigin")
   transfersIn EventTransfer[] @relation("TransferDestination")
+  releasePolicy EventReleasePolicy?
   createdAt  DateTime @default(now())
   @@index([producerId])
 }
@@ -623,5 +624,28 @@ model ProducerTransferPermission {
   enabled Boolean @default(false)
   maxPerTransferCents BigInt @default(0)
   updatedAt DateTime @updatedAt
+}
+
+// SOUL v5.3 — faixas comerciais de liberação por evento (sem valores padrão fictícios).
+model EventReleasePolicy {
+  id String @id @default(cuid())
+  eventId String @unique
+  event Event @relation(fields: [eventId], references: [id])
+  capacityTickets Int
+  active Boolean @default(true)
+  version Int @default(1)
+  updatedById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tiers EventReleaseTier[]
+}
+
+model EventReleaseTier {
+  id String @id @default(cuid())
+  policyId String
+  policy EventReleasePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  minSoldBps Int
+  releaseBps Int
+  @@unique([policyId, minSoldBps])
 }
 

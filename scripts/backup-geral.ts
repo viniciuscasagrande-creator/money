@@ -52,14 +52,16 @@ async function exportDatabaseDump() {
     "accountingPosting",
     "eventReserve",
     "eventTransfer",
-    "producerTransferPermission"
+    "producerTransferPermission",
+    "eventReleasePolicy",
+    "eventReleaseTier"
   ] as const;
 
   const tables: Record<string, { count: number; rows: unknown[] }> = {};
   let totalRows = 0;
 
   for (const modelName of models) {
-    const delegate = (prisma as Record<string, unknown>)[modelName] as
+    const delegate = (prisma as unknown as Record<string, unknown>)[modelName] as
       | { findMany?: () => Promise<unknown[]> }
       | undefined;
     if (delegate && typeof delegate.findMany === "function") {

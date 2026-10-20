@@ -98,6 +98,7 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
  subtitle={mode==="retencoes"?"Proteja compromissos de ECAD, aluguel, tributos e custos do evento (em % ou valor fixo R$); somente o Financeiro pode alterar reservas.":"Transfira posições internamente entre eventos do mesmo produtor, com reserva de origem, permissão e aprovação interna."}
  action={<div className="flex flex-wrap gap-2">
   <Link href={mode==="retencoes"?"/transferencias":"/retencoes"} className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50">{mode==="retencoes"?"Ir para Transferências entre Eventos":"Ir para Retenções Obrigatórias"}</Link>
+  {internal&&<Link href="/politicas-repasses" className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50">Faixas e Travas de Repasses</Link>}
   <Link href="/repasses" className="inline-flex h-10 items-center rounded-xl bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800">Voltar para Repasses & Central de 20 Travas</Link>
  </div>}/>
 

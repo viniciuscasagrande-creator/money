@@ -45,6 +45,7 @@ export async function registerSale(raw: {
 }
 
 import { repasseAvailable } from "@/lib/retention-math";
+import { releaseLimit, validateExistingPayout } from "@/lib/release-policy";
 import {
   evaluateEventPolicy,
   loadEventLockPolicy,
@@ -173,7 +174,8 @@ export async function createPayout(raw: { eventId: string; type: PayoutType; amo
     if (raw.type === "REPASSE" && capacity.lockPolicy.active && capacity.lockEvaluation.blockingReasons.length > 0) {
       return ruleError(capacity.lockEvaluation.blockingReasons[0]);
     }
-    const max = raw.type === "REPASSE" ? capacity.repasseCents : capacity.antecipacaoCents;
+    const progressive = raw.type === "REPASSE" ? await releaseLimit(tx, event.id) : null;
+    const max = raw.type === "REPASSE" ? (progressive ? progressive.availableCents : capacity.repasseCents) : capacity.antecipacaoCents;
     if (amountCents > max) return ruleError("Valor superior ao limite apurado para esta operação.");
     const payout = await tx.payoutRequest.create({ data: {
       type: raw.type, amountCents, producerId: event.producerId, eventId: event.id, requestedById: user.id
@@ -207,6 +209,7 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
     if (action === "APPROVE") {
       if (!internal || p.status !== "REQUESTED") return ruleError("Somente o Financeiro pode aprovar solicitações pendentes.");
       await ensureApprovalAuthority(tx, user, p.type, p.amountCents);
+      if (p.type === "REPASSE") await validateExistingPayout(tx, p);
       expected = "REQUESTED"; update = { status: "APPROVED", approvedAt: now, approvedById: user.id };
     } else if (action === "REJECT") {
       if (!internal || !["REQUESTED", "APPROVED"].includes(p.status)) return ruleError("Esta solicitação não pode ser reprovada.");
@@ -219,12 +222,14 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
     } else if (action === "FINANCE_SIGN") {
       if (!internal || p.status !== "PRODUCER_ACCEPTED") return ruleError("O Financeiro só pode assinar após o aceite do produtor.");
       if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de assinatura financeira.");
+      if (p.type === "REPASSE") await validateExistingPayout(tx, p);
       expected = "PRODUCER_ACCEPTED"; update = { status: "READY_TO_SETTLE", financeSignedById: user.id, financeSignedAt: now };
     } else {
       if (!internal || p.status !== "READY_TO_SETTLE") return ruleError("É necessário concluir as aprovações e aceites antes da baixa.");
       if (!await hasCapability(user, "PAYOUT_SETTLE", tx)) return ruleError("Sem permissão para registrar baixa financeira.");
       if (!args.settlementReference || args.settlementReference.trim().length < 8) return ruleError("Informe a referência de comprovação da transferência já realizada.");
       if (!args.bankAccountId) return ruleError("Selecione a conta da baixa.");
+      if (p.type === "REPASSE") await validateExistingPayout(tx, p);
       const account = await tx.bankAccount.updateMany({ where: { id: args.bankAccountId, active: true, balanceCents: { gte: p.amountCents } },
         data: { balanceCents: { decrement: p.amountCents } } });
       if (account.count !== 1) return ruleError("Conta inexistente, inativa ou sem saldo registrado suficiente.");

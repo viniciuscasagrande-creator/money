@@ -258,6 +258,14 @@ export function PayoutsPage() {
             >
               Transferências entre Eventos
             </Link>
+            {internal && (
+              <Link
+                href="/politicas-repasses"
+                className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Faixas e Travas de Repasses
+              </Link>
+            )}
             {isAdmin && (
               <Button
                 variant="outline"
