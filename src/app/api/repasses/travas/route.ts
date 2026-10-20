@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authorize, fail, isInternal } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { apiCatch } from "@/lib/validation";
+import { ensureApprovalAuthority, hasCapability } from "@/lib/governance";
+import { emitAccountingBusinessEvent } from "@/lib/accounting-integration";
 import { DEFAULT_PROGRESSIVE_TIERS, PAYOUT_LOCK_CATALOG, evaluateEventTransferEligibility } from "@/lib/control-math";
 import {
   RETENTION_CATEGORY_LABELS,
@@ -297,24 +300,65 @@ export async function POST(request: NextRequest) {
         if (idx === -1) return ruleError("Transferência entre eventos não encontrada.");
         const current = allTransfers[idx];
         if (!internal && current.producerId !== user.producerId) return ruleError("Operação não pertence ao produtor autenticado.");
+        const prodPolicy = await loadProducerFinancialPolicy(tx, current.producerId);
 
         if (input.action === "APPROVE") {
           if (!internal || current.status !== "REQUESTED") return ruleError("Apenas solicitações pendentes podem ser aprovadas pelo Financeiro SOUL.");
-          allTransfers[idx] = { ...current, status: "APPROVED", approvedById: user.id, updatedAt: now };
+          if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de decisão financeira (PAYOUT_APPROVE).");
+          if (current.requestedById === user.id) return ruleError("Segregação de funções: solicitante não pode aprovar a própria transferência.");
+          await ensureApprovalAuthority(tx, user, "REPASSE", BigInt(current.amountCents));
+          if (prodPolicy.approvalPolicy === "DUAL_INTERNAL" && !current.approvedById) {
+            allTransfers[idx] = { ...current, approvedById: user.id, updatedAt: now };
+          } else if (prodPolicy.approvalPolicy === "DUAL_INTERNAL") {
+            if (current.approvedById === user.id) return ruleError("Política DUAL_INTERNAL exige segunda aprovação por outro usuário interno.");
+            allTransfers[idx] = { ...current, status: "APPROVED", secondApprovedById: user.id, updatedAt: now };
+          } else {
+            allTransfers[idx] = { ...current, status: "APPROVED", approvedById: user.id, updatedAt: now };
+          }
         } else if (input.action === "REJECT") {
           if (!internal || !["REQUESTED", "APPROVED"].includes(current.status)) return ruleError("Esta transferência não pode ser reprovada no estado atual.");
+          if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de decisão financeira (PAYOUT_APPROVE).");
           if (!input.reason || input.reason.trim().length < 5) return ruleError("Informe o motivo da reprovação (mínimo 5 caracteres).");
           allTransfers[idx] = { ...current, status: "REJECTED", rejectionReason: input.reason.trim(), updatedAt: now };
         } else if (input.action === "PRODUCER_ACCEPT") {
+          if (user.role !== "PRODUCER" || user.producerId !== current.producerId) {
+            return ruleError("O aceite formal da transferência é exclusivo do produtor titular.");
+          }
           if (current.status !== "APPROVED") return ruleError("O aceite do produtor exige aprovação prévia do Financeiro SOUL.");
           allTransfers[idx] = { ...current, status: "PRODUCER_ACCEPTED", producerAcceptedById: user.id, updatedAt: now };
         } else if (input.action === "EXECUTE") {
-          if (!internal || !["APPROVED", "PRODUCER_ACCEPTED"].includes(current.status)) {
-            return ruleError("A execução atômica exige aprovação financeira prévia.");
+          if (!internal || current.status !== "PRODUCER_ACCEPTED") {
+            return ruleError("A execução atômica exige aprovação financeira e aceite formal do produtor (PRODUCER_ACCEPTED).");
+          }
+          if (!await hasCapability(user, "PAYOUT_SETTLE", tx)) return ruleError("Sem permissão para executar transferência interna (PAYOUT_SETTLE).");
+          if (current.requestedById === user.id || current.approvedById === user.id || current.secondApprovedById === user.id) {
+            return ruleError("Segregação de funções: a execução exige pessoa distinta do solicitante e do aprovador.");
+          }
+          if (!prodPolicy.allowEventTransfers) return ruleError("Permissão de transferência revogada para este produtor.");
+          const sourceAvail = await eventAvailability(tx, current.sourceEventId);
+          if (sourceAvail.lockPolicy.active && sourceAvail.lockEvaluation.blockingReasons.length > 0) {
+            return ruleError(sourceAvail.lockEvaluation.blockingReasons[0]);
+          }
+          if (sourceAvail.transferMarginCents < 0n) {
+            return ruleError("Saldo elegível insuficiente na origem após novas retenções ou riscos.");
           }
           allTransfers[idx] = { ...current, status: "EXECUTED", executedById: user.id, updatedAt: now };
+          await emitAccountingBusinessEvent(
+            {
+              externalKey: `transfer:lockpanel:${current.id}`,
+              type: "INTERNAL_EVENT_TRANSFER_EXECUTED",
+              source: "FINANCE",
+              sourceId: current.id,
+              eventId: current.sourceEventId,
+              producerId: current.producerId,
+              amountCents: BigInt(current.amountCents),
+              payload: { sourceEventId: current.sourceEventId, targetEventId: current.targetEventId, reason: current.reason }
+            },
+            tx
+          );
         } else {
           if (!internal || current.status !== "EXECUTED") return ruleError("Apenas transferências concluídas podem sofrer estorno compensatório.");
+          if (!await hasCapability(user, "PAYOUT_SETTLE", tx)) return ruleError("Sem permissão para estorno financeiro (PAYOUT_SETTLE).");
           if (!input.reason || input.reason.trim().length < 5) return ruleError("Informe a justificativa do estorno compensatório.");
           allTransfers[idx] = { ...current, status: "REVERSED", rejectionReason: input.reason.trim(), updatedAt: now };
         }
@@ -362,6 +406,19 @@ export async function POST(request: NextRequest) {
           create: { key: `retentions:${input.eventId}`, value: JSON.stringify(updated), changedById: user.id },
           update: { value: JSON.stringify(updated), changedById: user.id }
         });
+        await emitAccountingBusinessEvent(
+          {
+            externalKey: `retention:lockpanel:${created.id}`,
+            type: "MANDATORY_RETENTION_CREATED",
+            source: "FINANCE",
+            sourceId: created.id,
+            eventId: input.eventId,
+            producerId: event.producerId,
+            amountCents: BigInt(input.amountCents),
+            payload: { category: input.category, description: created.description, beneficiary: created.beneficiary }
+          },
+          tx
+        );
         await tx.auditLog.create({
           data: {
             actorId: user.id,
@@ -463,7 +520,7 @@ export async function POST(request: NextRequest) {
         }
       });
       return { id: input.eventId, channel: ext.channel };
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json(result, { status: 201 });
   } catch (e) {
     const x = apiCatch(e);

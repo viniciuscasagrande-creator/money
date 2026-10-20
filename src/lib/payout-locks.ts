@@ -104,32 +104,46 @@ type DbClient = Prisma.TransactionClient;
 export async function loadEventRetentions(tx: DbClient, eventId: string): Promise<EventRetentionItem[]> {
   const row = await tx.financeSetting.findUnique({ where: { key: `retentions:${eventId}` } });
   if (!row) return [];
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(row.value);
-    return Array.isArray(parsed) ? parsed : [];
+    parsed = JSON.parse(row.value);
   } catch {
-    return [];
+    throw new Error(`REGRA:Configuração de retenções corrompida para o evento ${eventId}.`);
   }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`REGRA:Formato inválido de retenções para o evento ${eventId}.`);
+  }
+  return parsed as EventRetentionItem[];
 }
 
 export async function loadEventLockPolicy(tx: DbClient, eventId: string): Promise<EventLockPolicyConfig> {
   const row = await tx.financeSetting.findUnique({ where: { key: `locks:${eventId}` } });
   if (!row) return defaultLockPolicy(eventId);
+  let parsed: unknown;
   try {
-    return { ...defaultLockPolicy(eventId), ...JSON.parse(row.value), eventId };
+    parsed = JSON.parse(row.value);
   } catch {
-    return defaultLockPolicy(eventId);
+    throw new Error(`REGRA:Política de travas corrompida para o evento ${eventId}.`);
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`REGRA:Formato inválido na política de travas do evento ${eventId}.`);
+  }
+  return { ...defaultLockPolicy(eventId), ...(parsed as Partial<EventLockPolicyConfig>), eventId };
 }
 
 export async function loadEventFeeExtension(tx: DbClient, eventId: string): Promise<EventFeeExtensionConfig> {
   const row = await tx.financeSetting.findUnique({ where: { key: `fee_ext:${eventId}` } });
   if (!row) return defaultFeeExtension(eventId);
+  let parsed: unknown;
   try {
-    return { ...defaultFeeExtension(eventId), ...JSON.parse(row.value), eventId };
+    parsed = JSON.parse(row.value);
   } catch {
-    return defaultFeeExtension(eventId);
+    throw new Error(`REGRA:Configuração estendida de taxas corrompida para o evento ${eventId}.`);
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`REGRA:Formato inválido na configuração de taxas do evento ${eventId}.`);
+  }
+  return { ...defaultFeeExtension(eventId), ...(parsed as Partial<EventFeeExtensionConfig>), eventId };
 }
 
 export function sumActiveRetentionsCents(items: readonly EventRetentionItem[]): bigint {
@@ -230,6 +244,7 @@ export type EventTransferRecord = {
   status: EventTransferStatus;
   requestedById: string;
   approvedById: string | null;
+  secondApprovedById?: string | null;
   producerAcceptedById: string | null;
   executedById: string | null;
   rejectionReason: string | null;
@@ -255,22 +270,31 @@ export function defaultProducerFinancialPolicy(producerId: string): ProducerFina
 export async function loadProducerFinancialPolicy(tx: DbClient, producerId: string): Promise<ProducerFinancialPolicyConfig> {
   const row = await tx.financeSetting.findUnique({ where: { key: `producer_policy:${producerId}` } });
   if (!row) return defaultProducerFinancialPolicy(producerId);
+  let parsed: unknown;
   try {
-    return { ...defaultProducerFinancialPolicy(producerId), ...JSON.parse(row.value), producerId };
+    parsed = JSON.parse(row.value);
   } catch {
-    return defaultProducerFinancialPolicy(producerId);
+    throw new Error(`REGRA:Política financeira corrompida para o produtor ${producerId}.`);
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`REGRA:Formato inválido na política financeira do produtor ${producerId}.`);
+  }
+  return { ...defaultProducerFinancialPolicy(producerId), ...(parsed as Partial<ProducerFinancialPolicyConfig>), producerId };
 }
 
 export async function loadEventTransfers(tx: DbClient): Promise<EventTransferRecord[]> {
   const row = await tx.financeSetting.findUnique({ where: { key: "event_transfers:all" } });
   if (!row) return [];
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(row.value);
-    return Array.isArray(parsed) ? parsed : [];
+    parsed = JSON.parse(row.value);
   } catch {
-    return [];
+    throw new Error("REGRA:Registro de transferências entre eventos corrompido no banco de dados.");
   }
+  if (!Array.isArray(parsed)) {
+    throw new Error("REGRA:Formato inválido no registro de transferências entre eventos.");
+  }
+  return parsed as EventTransferRecord[];
 }
 
 const ACTIVE_OUTGOING_TRANSFER_STATUSES: EventTransferStatus[] = ["REQUESTED", "APPROVED", "PRODUCER_ACCEPTED", "EXECUTED"];

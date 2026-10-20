@@ -6,6 +6,7 @@ import {prisma} from "@/lib/prisma";
 import {eventAvailability} from "@/lib/operations";
 import {hasCapability} from "@/lib/governance";
 import {apiCatch} from "@/lib/validation";
+import {emitAccountingBusinessEvent} from "@/lib/accounting-integration";
 export const runtime="nodejs";
 export async function POST(req:NextRequest,{params}:{params:Promise<{id:string}>}){
  const {user,error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;

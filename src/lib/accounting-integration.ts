@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export type EmitAccountingBusinessEventInput = {
@@ -19,18 +20,21 @@ export type EmitAccountingBusinessEventInput = {
 
 /**
  * Barramento centralizado de Eventos de Negócio (Financeiro / Tesouraria / Conciliação -> Contabilidade).
- * Registra de forma idempotente o fato econômico em `AccountingBusinessEvent` sem escrever
- * diretamente nos saldos operacionais e sem duplicar registros quando chamado mais de uma vez.
+ * Registra de forma idempotente o fato econômico em `AccountingBusinessEvent` na mesma transação operacional
+ * sem escrever diretamente nos saldos operacionais e sem duplicar registros quando chamado mais de uma vez.
  */
-export async function emitAccountingBusinessEvent(input: EmitAccountingBusinessEventInput) {
+export async function emitAccountingBusinessEvent(
+  input: EmitAccountingBusinessEventInput,
+  tx: Prisma.TransactionClient = prisma
+) {
   if (input.amountCents <= 0n) return null;
-  const existing = await prisma.accountingBusinessEvent.findUnique({
+  const existing = await tx.accountingBusinessEvent.findUnique({
     where: { externalKey: input.externalKey }
   });
   if (existing) {
     return { id: existing.id, status: existing.status, duplicate: true };
   }
-  const created = await prisma.accountingBusinessEvent.create({
+  const created = await tx.accountingBusinessEvent.create({
     data: {
       externalKey: input.externalKey,
       type: input.type,

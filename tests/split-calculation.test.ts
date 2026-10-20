@@ -79,4 +79,37 @@ test("taxa por evento híbrida (Percentual % + Valor Fixo R$ por ingresso) soma 
   assert.equal(result.diskNet, 2500n);
 });
 
+test("extendedSaleBreakdown impede quebra de conservação quando encargos excedem líquido do produtor (A10)", () => {
+  assert.throws(() =>
+    extendedSaleBreakdown({
+      unitPriceCents: 10000n,
+      quantity: 1,
+      feeMode: "PERCENT_BPS",
+      feeValue: 1000n,
+      mdrRateBps: 0,
+      mdrFixedCents: 0n,
+      producerPaysMdr: true,
+      costBearer: "PRODUCER",
+      installmentInterestBps: 5000,
+      spreadBps: 5000,
+      advancedBps: 5000
+    })
+  );
+  const valid = extendedSaleBreakdown({
+    unitPriceCents: 10000n,
+    quantity: 1,
+    feeMode: "PERCENT_BPS",
+    feeValue: 1000n,
+    mdrRateBps: 200,
+    mdrFixedCents: 0n,
+    producerPaysMdr: true,
+    costBearer: "PRODUCER",
+    installmentInterestBps: 300,
+    spreadBps: 100,
+    advancedBps: 100
+  });
+  assert.equal(valid.netSettlement, valid.producerNet + valid.diskNet);
+});
+
+
 

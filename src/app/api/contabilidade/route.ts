@@ -30,12 +30,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items: rows.map((r) => ({ ...r, amountCents: r.amountCents.toString() })) });
   }
   if (view === "razao") {
+    const period = req.nextUrl.searchParams.get("periodo");
+    const periodFilter = period && /^[0-9]{4}-[0-9]{2}$/.test(period) ? { period: { name: period } } : {};
     const rows = await prisma.accountingJournal.findMany({
+      where: periodFilter,
       orderBy: { occurredAt: "desc" },
-      take: 100,
+      take: 250,
       include: { postings: { include: { account: { select: { code: true, name: true } } } } }
     });
     return NextResponse.json({
+      periodo: period ?? null,
+      truncated: rows.length === 250,
       items: rows.map((r) => ({
         ...r,
         postings: r.postings.map((x) => ({
@@ -84,10 +89,14 @@ export async function GET(req: NextRequest) {
     });
   }
   if (view === "dre") {
+    const period = req.nextUrl.searchParams.get("periodo");
+    const periodFilter = period && /^[0-9]{4}-[0-9]{2}$/.test(period) ? { journal: { period: { name: period } } } : {};
     const rows = await prisma.accountingPosting.findMany({
+      where: periodFilter,
       include: { account: { select: { code: true, name: true, type: true } } },
       take: 10000
     });
+    if (rows.length === 10000) return fail("Limite de partidas alcançado na DRE: filtre por período AAAA-MM.", 413);
     let receitaBruta = 0n;
     let deducoes = 0n;
     let despesas = 0n;
@@ -122,11 +131,14 @@ export async function GET(req: NextRequest) {
     });
   }
   if (view === "passivos") {
+    const period = req.nextUrl.searchParams.get("periodo");
+    const periodFilter = period && /^[0-9]{4}-[0-9]{2}$/.test(period) ? { journal: { period: { name: period } } } : {};
     const rows = await prisma.accountingPosting.findMany({
-      where: { account: { type: "LIABILITY" } },
+      where: { account: { type: "LIABILITY" }, ...periodFilter },
       include: { account: { select: { code: true, name: true } } },
       take: 10000
     });
+    if (rows.length === 10000) return fail("Limite de partidas alcançado nos passivos: filtre por período AAAA-MM.", 413);
     const byEvent = new Map<string, { eventId: string; accountCode: string; accountName: string; credit: bigint; debit: bigint }>();
     for (const r of rows) {
       const key = `${r.eventId || "CONSOLIDADO"}::${r.account.code}`;

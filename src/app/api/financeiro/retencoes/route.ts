@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { apiCatch } from "@/lib/validation";
+import { emitAccountingBusinessEvent } from "@/lib/accounting-integration";
 export const runtime = "nodejs";
 const add = z.object({ eventId:z.string().min(1), purpose:z.string().trim().min(3).max(150), amountCents:z.string().regex(/^[1-9]\d{0,15}$/) }).strict();
 export async function GET(request:NextRequest){
@@ -15,6 +16,7 @@ export async function POST(request:NextRequest){
  try { const v=add.parse(await request.json());const reserve=await prisma.$transaction(async tx=>{
   const e=await tx.event.findUnique({where:{id:v.eventId}});if(!e||e.status==="CLOSED")throw new Error("REGRA:Evento inexistente ou encerrado.");
   const r=await tx.eventReserve.create({data:{eventId:v.eventId,purpose:v.purpose,amountCents:BigInt(v.amountCents),createdById:user.id}});
+  await emitAccountingBusinessEvent({externalKey:`reserve:${r.id}`,type:"MANDATORY_RETENTION_CREATED",source:"FINANCE",sourceId:r.id,eventId:e.id,producerId:e.producerId,amountCents:r.amountCents,payload:{purpose:v.purpose}},tx);
   await tx.auditLog.create({data:{actorId:user.id,entity:"EventReserve",entityId:r.id,action:"RESERVE_CREATED",summary:`Reserva obrigatória cadastrada para evento ${e.id}: ${v.purpose}.`}});return r;
  });return NextResponse.json({id:reserve.id},{status:201});
  } catch(e){const x=apiCatch(e);return fail(x.message,x.status);}

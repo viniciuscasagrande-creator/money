@@ -40,8 +40,11 @@ export async function releaseLimit(tx: Db, eventId: string) {
 }
 
 /** Verifica uma solicitação já reservada: não conta sua própria reserva duas vezes. */
-export async function validateExistingPayout(tx: Db, p: { eventId: string; amountCents: bigint }) {
-  const limit = await releaseLimit(tx, p.eventId);
+export async function validateExistingPayout(
+  tx: Db,
+  p: { eventId: string; amountCents: bigint; type?: "REPASSE" | "ANTECIPACAO" }
+) {
+  const limit = p.type !== "ANTECIPACAO" ? await releaseLimit(tx, p.eventId) : null;
   const availability = await eventAvailability(tx, p.eventId);
   // O total já comprometido inclui este repasse; se exceder o novo teto, bloqueie.
   if (limit) {
@@ -53,8 +56,9 @@ export async function validateExistingPayout(tx: Db, p: { eventId: string; amoun
       throw new Error("REGRA:Política progressiva alterou o limite; revisão financeira necessária.");
     }
   }
+  const baseCents = p.type === "ANTECIPACAO" ? availability.totalCents : availability.settledCents;
   const rawRemaining =
-    availability.settledCents -
+    baseCents -
     availability.committedCents -
     availability.blockedCents -
     availability.reserveCents -

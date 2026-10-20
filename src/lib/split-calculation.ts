@@ -39,6 +39,7 @@ export type ExtendedSaleInput = {
   quantity: number;
   feeMode: "PERCENT_BPS" | "FIXED_PER_TICKET";
   feeValue: bigint;
+  feeExtraFixedCents?: bigint;
   mdrRateBps: number;
   mdrFixedCents: bigint;
   producerPaysMdr: boolean;
@@ -70,11 +71,22 @@ export function extendedSaleBreakdown(input: ExtendedSaleInput) {
 
   const buyerTotalCents = costBearer === "BUYER" ? base.gross + installmentSurchargeCents + spreadCents : base.gross;
   const producerExtraCharges = costBearer === "PRODUCER" ? installmentSurchargeCents + spreadCents + advancedCents : 0n;
-  const soulExtraRevenue = installmentSurchargeCents + spreadCents + advancedCents + rebateCents;
 
-  const producerNet = base.producerNet > producerExtraCharges ? base.producerNet - producerExtraCharges : 0n;
-  const diskNet = base.diskNet + (costBearer === "PRODUCER" ? producerExtraCharges : 0n) + (costBearer === "BUYER" ? installmentSurchargeCents + spreadCents : 0n) + rebateCents;
+  if (costBearer === "PRODUCER" && producerExtraCharges >= base.producerNet) {
+    return ruleError("Os encargos adicionais absorvidos pelo produtor excedem o valor líquido da venda.");
+  }
+
+  const producerNet = base.producerNet - producerExtraCharges;
+  const diskNet =
+    base.diskNet +
+    (costBearer === "PRODUCER" ? producerExtraCharges : 0n) +
+    (costBearer === "BUYER" ? installmentSurchargeCents + spreadCents : 0n) +
+    rebateCents;
   const netSettlement = buyerTotalCents - base.mdr + rebateCents;
+
+  if (netSettlement !== producerNet + diskNet) {
+    throw new Error("Falha de conservação financeira no cálculo estendido.");
+  }
 
   return {
     ...base,

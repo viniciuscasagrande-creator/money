@@ -4,26 +4,43 @@ import { parseCents } from "@/lib/money";
 import { adjustedAvailability } from "@/lib/control-math";
 import type { SessionUser } from "@/lib/auth";
 import { ensureApprovalAuthority, hasCapability } from "@/lib/governance";
+import { emitAccountingBusinessEvent } from "@/lib/accounting-integration";
 
-import { ruleError, saleBreakdown } from "@/lib/split-calculation";
+import { extendedSaleBreakdown, ruleError, saleBreakdown } from "@/lib/split-calculation";
 export { nonnegativeCents, percentageCents, ruleError, saleBreakdown } from "@/lib/split-calculation";
 
 export async function registerSale(raw: {
   eventId: string; externalReference: string; mdrRuleId: string; unitPriceCents: string; quantity: number
 }, user: SessionUser) {
   return prisma.$transaction(async tx => {
-    const [event, mdr, fee, extraFixedSetting] = await Promise.all([
+    const [event, mdr, fee, extraFixedSetting, feeExt] = await Promise.all([
       tx.event.findUnique({ where: { id: raw.eventId }, include: { producer: { select: { active: true } } } }),
       tx.mdrRule.findUnique({ where: { id: raw.mdrRuleId }, include: { gateway: true, brand: true } }),
       tx.eventFeePolicy.findUnique({ where: { eventId: raw.eventId } }),
-      tx.financeSetting.findUnique({ where: { key: `fee_fixed_extra:${raw.eventId}` } })
+      tx.financeSetting.findUnique({ where: { key: `fee_fixed_extra:${raw.eventId}` } }),
+      loadEventFeeExtension(tx, raw.eventId)
     ]);
     if (!event || !event.producer.active || event.status === "CLOSED") return ruleError("Evento indisponível.");
     if (!mdr || !mdr.active || !mdr.gateway.active || !mdr.brand.active) return ruleError("Regra de MDR indisponível.");
     if (!fee || !fee.active) return ruleError("Configure primeiro a taxa da Disk para este evento.");
     const extraFixedCents = extraFixedSetting?.value && /^\d+$/.test(extraFixedSetting.value) ? BigInt(extraFixedSetting.value) : 0n;
-    const parts = saleBreakdown({ unitPriceCents: parseCents(raw.unitPriceCents), quantity: raw.quantity,
-      feeMode: fee.mode, feeValue: fee.value, feeExtraFixedCents: extraFixedCents, mdrRateBps: mdr.rateBps, mdrFixedCents: mdr.fixedCents, producerPaysMdr: fee.producerPaysMdr });
+    const parts = extendedSaleBreakdown({
+      unitPriceCents: parseCents(raw.unitPriceCents),
+      quantity: raw.quantity,
+      feeMode: fee.mode,
+      feeValue: fee.value,
+      feeExtraFixedCents: extraFixedCents,
+      mdrRateBps: mdr.rateBps,
+      mdrFixedCents: mdr.fixedCents,
+      producerPaysMdr: fee.producerPaysMdr,
+      channel: feeExt.channel,
+      installments: mdr.installments,
+      installmentInterestBps: feeExt.installmentInterestBps,
+      costBearer: feeExt.costBearer,
+      spreadBps: feeExt.spreadBps,
+      advancedBps: feeExt.advancedBps,
+      rebateBps: feeExt.rebateBps
+    });
     const title = await tx.financialTitle.create({ data: {
       kind: "RECEIVABLE", description: `Liquidação adquirente · ${raw.externalReference}`,
       amountCents: parts.netSettlement, producerId: event.producerId, eventId: event.id, createdById: user.id
@@ -38,6 +55,19 @@ export async function registerSale(raw: {
       netSettlementCents: parts.netSettlement, producerNetCents: parts.producerNet,
       diskNetCents: parts.diskNet, receivableTitleId: title.id, createdById: user.id
     } });
+    await emitAccountingBusinessEvent(
+      {
+        externalKey: `sale:${sale.id}`,
+        type: "TICKET_SALE_CAPTURED",
+        source: feeExt.channel === "BILHETERIA" ? "BOX_OFFICE" : feeExt.channel,
+        sourceId: sale.id,
+        eventId: event.id,
+        producerId: event.producerId,
+        amountCents: parts.gross,
+        payload: parts.memory
+      },
+      tx
+    );
     await tx.auditLog.create({ data: { actorId: user.id, action: "SALE_REGISTERED", entity: "FinancialSale", entityId: sale.id,
       summary: `Venda registrada e recebível interno vinculado. Referência ${raw.externalReference}.` } });
     return sale;
@@ -48,6 +78,7 @@ import { repasseAvailable } from "@/lib/retention-math";
 import { releaseLimit, validateExistingPayout } from "@/lib/release-policy";
 import {
   evaluateEventPolicy,
+  loadEventFeeExtension,
   loadEventLockPolicy,
   loadEventRetentions,
   loadEventTransfers,
@@ -171,7 +202,7 @@ export async function createPayout(raw: { eventId: string; type: PayoutType; amo
       return ruleError("Permissão bloqueada: solicitação de antecipações está desabilitada na política deste produtor.");
     }
     const capacity = await eventAvailability(tx, event.id);
-    if (raw.type === "REPASSE" && capacity.lockPolicy.active && capacity.lockEvaluation.blockingReasons.length > 0) {
+    if (capacity.lockPolicy.active && capacity.lockEvaluation.blockingReasons.length > 0) {
       return ruleError(capacity.lockEvaluation.blockingReasons[0]);
     }
     const progressive = raw.type === "REPASSE" ? await releaseLimit(tx, event.id) : null;
@@ -197,19 +228,22 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
     const audit = async (name: string, summary: string) => tx.auditLog.create({ data: { actorId: user.id, entity: "PayoutRequest", entityId: id, action: name, summary } });
     let update: Prisma.PayoutRequestUncheckedUpdateManyInput;
     let expected: PayoutStatus;
-    if (action === "APPROVE" || action === "SETTLE") {
+    if (action === "APPROVE" || action === "FINANCE_SIGN" || action === "SETTLE") {
       const lockPolicy = await loadEventLockPolicy(tx, p.eventId);
       if (lockPolicy.active) {
         if (lockPolicy.manualBlockActive) return ruleError(`Trava 20: Bloqueio manual justificado (${lockPolicy.manualBlockReason || "Auditoria interna"}).`);
         if (!lockPolicy.contractSigned) return ruleError("Trava 07: Contrato do evento pendente de assinatura/vigência.");
         if (!lockPolicy.producerDocsValid) return ruleError("Trava 08: Documentação cadastral/bancária do produtor pendente.");
         if (lockPolicy.overdueExpensesActive) return ruleError("Trava 10: Existem despesas críticas vencidas vinculadas ao evento.");
+        if (action === "SETTLE" && !lockPolicy.reconciliationApproved) {
+          return ruleError("Trava 13: Conciliação bancária do evento pendente de conferência para baixa.");
+        }
       }
+      await validateExistingPayout(tx, p);
     }
     if (action === "APPROVE") {
       if (!internal || p.status !== "REQUESTED") return ruleError("Somente o Financeiro pode aprovar solicitações pendentes.");
       await ensureApprovalAuthority(tx, user, p.type, p.amountCents);
-      if (p.type === "REPASSE") await validateExistingPayout(tx, p);
       expected = "REQUESTED"; update = { status: "APPROVED", approvedAt: now, approvedById: user.id };
     } else if (action === "REJECT") {
       if (!internal || !["REQUESTED", "APPROVED"].includes(p.status)) return ruleError("Esta solicitação não pode ser reprovada.");
@@ -222,14 +256,12 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
     } else if (action === "FINANCE_SIGN") {
       if (!internal || p.status !== "PRODUCER_ACCEPTED") return ruleError("O Financeiro só pode assinar após o aceite do produtor.");
       if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de assinatura financeira.");
-      if (p.type === "REPASSE") await validateExistingPayout(tx, p);
       expected = "PRODUCER_ACCEPTED"; update = { status: "READY_TO_SETTLE", financeSignedById: user.id, financeSignedAt: now };
     } else {
       if (!internal || p.status !== "READY_TO_SETTLE") return ruleError("É necessário concluir as aprovações e aceites antes da baixa.");
       if (!await hasCapability(user, "PAYOUT_SETTLE", tx)) return ruleError("Sem permissão para registrar baixa financeira.");
       if (!args.settlementReference || args.settlementReference.trim().length < 8) return ruleError("Informe a referência de comprovação da transferência já realizada.");
       if (!args.bankAccountId) return ruleError("Selecione a conta da baixa.");
-      if (p.type === "REPASSE") await validateExistingPayout(tx, p);
       const account = await tx.bankAccount.updateMany({ where: { id: args.bankAccountId, active: true, balanceCents: { gte: p.amountCents } },
         data: { balanceCents: { decrement: p.amountCents } } });
       if (account.count !== 1) return ruleError("Conta inexistente, inativa ou sem saldo registrado suficiente.");
@@ -238,6 +270,19 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
       await tx.ledgerEntry.create({ data: { bankAccountId: args.bankAccountId, payoutId: id, direction: "DEBIT", origin: "PAYOUT",
         amountCents: p.amountCents, description: `${p.type} · transferência comprovada ${args.settlementReference.trim()}`,
         producerId: p.producerId, eventId: p.eventId } });
+      await emitAccountingBusinessEvent(
+        {
+          externalKey: `payout:settled:${id}`,
+          type: "PRODUCER_PAYOUT_SETTLED",
+          source: "FINANCE",
+          sourceId: id,
+          eventId: p.eventId,
+          producerId: p.producerId,
+          amountCents: p.amountCents,
+          payload: { type: p.type, bankAccountId: args.bankAccountId, settlementReference: args.settlementReference.trim() }
+        },
+        tx
+      );
     }
     const claimed = await tx.payoutRequest.updateMany({ where: { id, status: expected }, data: update });
     if (claimed.count !== 1) throw new Error("REGRA:O status foi alterado por outra operação. Atualize a tela.");

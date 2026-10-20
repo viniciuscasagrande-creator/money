@@ -6,10 +6,17 @@ function run(cmd, customEnv = process.env) {
   execSync(cmd, { stdio: "inherit", env: customEnv });
 }
 
-async function ensureDefaultAdmin() {
-  const email = (process.env.BOOTSTRAP_ADMIN_EMAIL || "admin@financeiro.local").trim().toLowerCase();
+async function ensureBootstrapAdminIfConfigured() {
+  const email = (process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
   const name = (process.env.BOOTSTRAP_ADMIN_NAME || "Administrador Geral").trim();
-  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || "Admin@Financeiro2026!";
+  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || "";
+
+  if (!email || password.length < 12) {
+    console.log(
+      "ℹ Bootstrap automático de administrador ignorado (defina BOOTSTRAP_ADMIN_EMAIL e BOOTSTRAP_ADMIN_PASSWORD com >= 12 caracteres ou use npm run bootstrap)."
+    );
+    return;
+  }
 
   const { PrismaClient } = await import("@prisma/client");
   const bcryptModule = await import("bcryptjs");
@@ -21,9 +28,9 @@ async function ensureDefaultAdmin() {
     if (existingAdmins === 0) {
       const passwordHash = await bcrypt.hash(password, 12);
       await prisma.user.create({
-        data: { name, email, role: "ADMIN", passwordHash },
+        data: { name, email, role: "ADMIN", passwordHash }
       });
-      console.log(`✔ Administrador inicial garantido no banco: ${email}`);
+      console.log(`✔ Administrador inicial criado via variáveis explícitas de bootstrap: ${email}`);
     }
   } finally {
     await prisma.$disconnect();
@@ -31,6 +38,7 @@ async function ensureDefaultAdmin() {
 }
 
 async function main() {
+  const skipPush = process.env.SKIP_DB_PUSH === "1";
   const dbUrl = (
     process.env.DATABASE_URL ||
     process.env.POSTGRES_PRISMA_URL ||
@@ -54,17 +62,17 @@ async function main() {
   if (isPostgres) {
     console.log("🌐 Ambiente PostgreSQL / Vercel detectado.");
     run("npx prisma generate --schema=prisma/postgresql/schema.prisma");
-    if (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://")) {
+    if (!skipPush && (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://"))) {
       const migrationEnv = unpooledUrl ? { ...process.env, DATABASE_URL: unpooledUrl } : process.env;
       run("npx prisma db push --schema=prisma/postgresql/schema.prisma --skip-generate", migrationEnv);
-      await ensureDefaultAdmin();
+      await ensureBootstrapAdminIfConfigured();
     }
   } else {
     console.log("💻 SQLite local detectado em DATABASE_URL.");
     run("npx prisma generate --schema=prisma/schema.prisma");
-    if (dbUrl.startsWith("file:")) {
+    if (!skipPush && dbUrl.startsWith("file:")) {
       run("npx prisma db push --schema=prisma/schema.prisma --skip-generate");
-      await ensureDefaultAdmin();
+      await ensureBootstrapAdminIfConfigured();
     }
   }
 }
