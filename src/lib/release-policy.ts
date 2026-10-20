@@ -17,7 +17,7 @@ export async function releaseLimit(tx: Db, eventId: string) {
     tx.payoutRequest.aggregate({ where: { eventId, status: { in: [...blockedStatuses] } }, _sum: { amountCents: true } }),
     tx.riskCase.aggregate({ where: { eventId, status: { in: ["OPEN", "CONFIRMED"] } }, _sum: { exposureCents: true } }),
     tx.eventReserve.aggregate({ where: { eventId, status: "ACTIVE" }, _sum: { amountCents: true } }),
-    tx.eventTransfer.aggregate({ where: { originEventId: eventId, status: { in: ["REQUESTED", "APPROVED", "EXECUTED"] } }, _sum: { amountCents: true } })
+    tx.eventTransfer.aggregate({ where: { originEventId: eventId, status: { in: ["REQUESTED", "APPROVED", "PRODUCER_ACCEPTED", "EXECUTED"] } }, _sum: { amountCents: true } })
   ]);
   const eligible =
     (settled._sum.producerNetCents ?? 0n) -

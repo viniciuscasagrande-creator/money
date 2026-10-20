@@ -1,3 +1,4 @@
+import {Prisma} from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
@@ -44,6 +45,8 @@ export async function POST(req: NextRequest) {
       if (!period || period.status !== "OPEN" || item.occurredAt < period.startAt || item.occurredAt >= period.endAt)
         throw new Error("Período contábil fechado ou inexistente.");
 
+      const locked=await tx.accountingPeriod.updateMany({where:{id:period.id,status:"OPEN"},data:{status:"OPEN"}});
+      if(locked.count!==1)throw new Error("Período contábil fechado durante processamento.");
       const postingsToCreate =
         customPostings && customPostings.length >= 2
           ? customPostings.map((p) => ({
@@ -98,7 +101,7 @@ export async function POST(req: NextRequest) {
         }
       });
       return { journalId: journal.id, duplicate: false, postingsCount: postingsToCreate.length };
-    });
+    },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
     return NextResponse.json(result);
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Falha de contabilização.", 400);

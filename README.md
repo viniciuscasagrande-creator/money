@@ -1,3 +1,16 @@
+# MONEY / SOUL Financeiro — v5.2.1
+
+Correções de integridade, autorização, build e recuperação aplicadas em 20/10/2026.
+
+- [Guia de atualização e restauração](docs/deploy/ATUALIZACAO-AUDITORIA-V5.2.1.md)
+- [Relatório de correções e validação](docs/homologacao/CORRECOES-AUDITORIA-V5.2.1.md)
+
+O build não cria banco ou administrador. Siga o guia para migrar a base existente antes de executar os fluxos financeiros.
+
+---
+
+## Documentação histórica da versão anterior
+
 # ERP Financeiro — Fintech Premium (v4.1)
 
 Sistema ERP Financeiro completo (**Pacotes 01 + 02 + 03 + 04**) com identidade visual **BankOS — Fintech Premium**, estruturado em **17 menus principais e 172 submenus**, conectado ao **Lakebase Postgres (Neon)** e publicado na **Vercel**.

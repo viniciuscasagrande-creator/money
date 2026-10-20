@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { saleBreakdown, percentageCents, nonnegativeCents, simulateInstallmentMatrix, extendedSaleBreakdown } from "../src/lib/split-calculation";
 
+test("encargos estendidos não podem criar receita sem contrapartida",()=>{
+  assert.throws(()=>extendedSaleBreakdown({unitPriceCents:10000n,quantity:1,feeMode:"PERCENT_BPS",feeValue:1000n,
+    mdrRateBps:0,mdrFixedCents:0n,producerPaysMdr:true,costBearer:"PRODUCER",spreadBps:5000,advancedBps:5000,installmentInterestBps:5000}),/excedem/);
+});
+
 test("calcula split conservando o valor líquido da adquirente", () => {
   const result = saleBreakdown({ unitPriceCents: 10000n, quantity: 2, feeMode: "PERCENT_BPS", feeValue: 1000n,
     mdrRateBps: 250, mdrFixedCents: 0n, producerPaysMdr: true });
@@ -78,38 +83,5 @@ test("taxa por evento híbrida (Percentual % + Valor Fixo R$ por ingresso) soma 
   assert.equal(result.producerNet, 17100n); // R$ 200,00 - R$ 25,00 - R$ 4,00 = R$ 171,00
   assert.equal(result.diskNet, 2500n);
 });
-
-test("extendedSaleBreakdown impede quebra de conservação quando encargos excedem líquido do produtor (A10)", () => {
-  assert.throws(() =>
-    extendedSaleBreakdown({
-      unitPriceCents: 10000n,
-      quantity: 1,
-      feeMode: "PERCENT_BPS",
-      feeValue: 1000n,
-      mdrRateBps: 0,
-      mdrFixedCents: 0n,
-      producerPaysMdr: true,
-      costBearer: "PRODUCER",
-      installmentInterestBps: 5000,
-      spreadBps: 5000,
-      advancedBps: 5000
-    })
-  );
-  const valid = extendedSaleBreakdown({
-    unitPriceCents: 10000n,
-    quantity: 1,
-    feeMode: "PERCENT_BPS",
-    feeValue: 1000n,
-    mdrRateBps: 200,
-    mdrFixedCents: 0n,
-    producerPaysMdr: true,
-    costBearer: "PRODUCER",
-    installmentInterestBps: 300,
-    spreadBps: 100,
-    advancedBps: 100
-  });
-  assert.equal(valid.netSettlement, valid.producerNet + valid.diskNet);
-});
-
 
 

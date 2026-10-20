@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import {
   DEFAULT_PROGRESSIVE_TIERS,
   PAYOUT_LOCK_CATALOG,
@@ -102,48 +103,37 @@ export function defaultFeeExtension(eventId: string): EventFeeExtensionConfig {
 type DbClient = Prisma.TransactionClient;
 
 export async function loadEventRetentions(tx: DbClient, eventId: string): Promise<EventRetentionItem[]> {
-  const row = await tx.financeSetting.findUnique({ where: { key: `retentions:${eventId}` } });
-  if (!row) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(row.value);
-  } catch {
-    throw new Error(`REGRA:Configuração de retenções corrompida para o evento ${eventId}.`);
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error(`REGRA:Formato inválido de retenções para o evento ${eventId}.`);
-  }
-  return parsed as EventRetentionItem[];
+  if (await tx.financeSetting.findUnique({where:{key:`retentions:${eventId}`}})) throw new Error("REGRA:Migre as retenções legadas antes de operar.");
+  const rows = await tx.eventReserve.findMany({where:{eventId},orderBy:{createdAt:"desc"}});
+  return rows.map(r => ({id:r.id,eventId:r.eventId,category:r.category as RetentionCategory,description:r.purpose,
+    beneficiary:r.beneficiary,documentRef:r.documentRef,ownerName:r.ownerName,dueDate:r.dueDate?.toISOString()??null,
+    amountCents:r.amountCents.toString(),status:r.status,createdAt:r.createdAt.toISOString(),updatedAt:r.updatedAt.toISOString()}));
 }
 
 export async function loadEventLockPolicy(tx: DbClient, eventId: string): Promise<EventLockPolicyConfig> {
   const row = await tx.financeSetting.findUnique({ where: { key: `locks:${eventId}` } });
   if (!row) return defaultLockPolicy(eventId);
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(row.value);
+    const value = { ...defaultLockPolicy(eventId), ...JSON.parse(row.value), eventId };
+    z.object({active:z.boolean(),capacityTickets:z.number().int().positive(),soldTicketsOverride:z.number().int().nonnegative().nullable(),
+      salesTriggerBps:z.number().int().min(0).max(10000),customReleaseLimitBps:z.number().int().min(0).max(10000).nullable(),
+      calculationBase:z.enum(["PRODUCER_NET_AFTER_RETENTIONS","GROSS_SOLD","POTENTIAL_TOTAL"]),potentialEventCents:z.string().regex(/^\d+$/),
+      contractSigned:z.boolean(),producerDocsValid:z.boolean(),reconciliationApproved:z.boolean(),overdueExpensesActive:z.boolean(),
+      manualBlockActive:z.boolean(),manualBlockReason:z.string(),maxSingleRequestCents:z.string().regex(/^\d+$/),maxCumulativeEventCents:z.string().regex(/^\d+$/),postEventClosed:z.boolean()}).parse(value);
+    return value;
   } catch {
-    throw new Error(`REGRA:Política de travas corrompida para o evento ${eventId}.`);
+    throw new Error("REGRA:Configuração de travas inválida. Operação bloqueada.");
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`REGRA:Formato inválido na política de travas do evento ${eventId}.`);
-  }
-  return { ...defaultLockPolicy(eventId), ...(parsed as Partial<EventLockPolicyConfig>), eventId };
 }
 
 export async function loadEventFeeExtension(tx: DbClient, eventId: string): Promise<EventFeeExtensionConfig> {
   const row = await tx.financeSetting.findUnique({ where: { key: `fee_ext:${eventId}` } });
   if (!row) return defaultFeeExtension(eventId);
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(row.value);
+    return { ...defaultFeeExtension(eventId), ...JSON.parse(row.value), eventId };
   } catch {
-    throw new Error(`REGRA:Configuração estendida de taxas corrompida para o evento ${eventId}.`);
+    return defaultFeeExtension(eventId);
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`REGRA:Formato inválido na configuração de taxas do evento ${eventId}.`);
-  }
-  return { ...defaultFeeExtension(eventId), ...(parsed as Partial<EventFeeExtensionConfig>), eventId };
 }
 
 export function sumActiveRetentionsCents(items: readonly EventRetentionItem[]): bigint {
@@ -244,7 +234,6 @@ export type EventTransferRecord = {
   status: EventTransferStatus;
   requestedById: string;
   approvedById: string | null;
-  secondApprovedById?: string | null;
   producerAcceptedById: string | null;
   executedById: string | null;
   rejectionReason: string | null;
@@ -269,38 +258,36 @@ export function defaultProducerFinancialPolicy(producerId: string): ProducerFina
 
 export async function loadProducerFinancialPolicy(tx: DbClient, producerId: string): Promise<ProducerFinancialPolicyConfig> {
   const row = await tx.financeSetting.findUnique({ where: { key: `producer_policy:${producerId}` } });
-  if (!row) return defaultProducerFinancialPolicy(producerId);
-  let parsed: unknown;
+  if (!row) {
+    const old = await tx.producerTransferPermission.findUnique({where:{producerId}});
+    return {...defaultProducerFinancialPolicy(producerId),...(old?{allowEventTransfers:old.enabled,maxSingleTransferCents:old.maxPerTransferCents.toString()}:{})};
+  }
   try {
-    parsed = JSON.parse(row.value);
+    const value = { ...defaultProducerFinancialPolicy(producerId), ...JSON.parse(row.value), producerId };
+    z.object({allowPayoutRequests:z.boolean(),allowAdvanceRequests:z.boolean(),allowEventTransfers:z.boolean(),allowedTransferEventIds:z.array(z.string()),
+      maxSingleTransferCents:z.string().regex(/^\d+$/),maxTransferPercentBps:z.number().int().min(0).max(10000),maxTransfersPerEvent:z.number().int().positive(),approvalPolicy:z.enum(["FINANCE_SOUL","DUAL_INTERNAL"])}).parse(value);
+    return value;
   } catch {
-    throw new Error(`REGRA:Política financeira corrompida para o produtor ${producerId}.`);
+    throw new Error("REGRA:Política do produtor inválida. Operação bloqueada.");
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`REGRA:Formato inválido na política financeira do produtor ${producerId}.`);
-  }
-  return { ...defaultProducerFinancialPolicy(producerId), ...(parsed as Partial<ProducerFinancialPolicyConfig>), producerId };
 }
 
 export async function loadEventTransfers(tx: DbClient): Promise<EventTransferRecord[]> {
-  const row = await tx.financeSetting.findUnique({ where: { key: "event_transfers:all" } });
-  if (!row) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(row.value);
-  } catch {
-    throw new Error("REGRA:Registro de transferências entre eventos corrompido no banco de dados.");
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error("REGRA:Formato inválido no registro de transferências entre eventos.");
-  }
-  return parsed as EventTransferRecord[];
+  if (await tx.financeSetting.findUnique({where:{key:"event_transfers:all"}})) throw new Error("REGRA:Migre as transferências legadas antes de operar.");
+  const rows = await tx.eventTransfer.findMany({include:{originEvent:{include:{producer:{select:{name:true}}}},destinationEvent:true},orderBy:{createdAt:"desc"}});
+  return rows.map(t => ({id:t.id,producerId:t.producerId,producerName:t.originEvent.producer.name,
+    sourceEventId:t.originEventId,sourceEventName:t.originEvent.name,targetEventId:t.destinationEventId,targetEventName:t.destinationEvent.name,
+    amountCents:t.amountCents.toString(),reason:t.reason,status:t.status,requestedById:t.requestedById,approvedById:t.approvedById,
+    producerAcceptedById:t.producerAcceptedById,executedById:t.executedById,rejectionReason:t.rejectionReason??t.reversalReason,
+    createdAt:t.createdAt.toISOString(),updatedAt:t.updatedAt.toISOString()}));
 }
 
 const ACTIVE_OUTGOING_TRANSFER_STATUSES: EventTransferStatus[] = ["REQUESTED", "APPROVED", "PRODUCER_ACCEPTED", "EXECUTED"];
 
 export function sumEventTransferMovementsCents(transfers: readonly EventTransferRecord[], eventId: string) {
   let reservedOrExecutedOutCents = 0n;
+  let reservedOutCents = 0n;
+  let executedOutCents = 0n;
   let executedInCents = 0n;
   let outgoingCount = 0;
   for (const t of transfers) {
@@ -308,12 +295,14 @@ export function sumEventTransferMovementsCents(transfers: readonly EventTransfer
     const amt = BigInt(t.amountCents);
     if (t.sourceEventId === eventId && ACTIVE_OUTGOING_TRANSFER_STATUSES.includes(t.status)) {
       reservedOrExecutedOutCents += amt;
+      if(t.status === "EXECUTED") executedOutCents += amt;
+      else reservedOutCents += amt;
       outgoingCount++;
     }
     if (t.targetEventId === eventId && t.status === "EXECUTED") {
       executedInCents += amt;
     }
   }
-  return { reservedOrExecutedOutCents, executedInCents, outgoingCount };
+  return { reservedOrExecutedOutCents, reservedOutCents, executedOutCents, executedInCents, outgoingCount };
 }
 

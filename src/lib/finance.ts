@@ -1,8 +1,8 @@
+import {emitAccountingBusinessEvent} from "@/lib/accounting-integration";
 import { EntryDirection, TitleKind, TitleStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseCents } from "@/lib/money";
 import { isoDate, titleInput } from "@/lib/validation";
-import { emitAccountingBusinessEvent } from "@/lib/accounting-integration";
 import type { SessionUser } from "@/lib/auth";
 
 export const titleInclude = { producer: { select: { name: true } }, event: { select: { name: true } }, bankAccount: { select: { name: true } } } as const;
@@ -65,25 +65,11 @@ export async function settleTitle(id: string, bankAccountId: string, user: Sessi
       producerId: title.producerId, eventId: title.eventId
     } });
     await tx.financialSale.updateMany({ where: { receivableTitleId: id, status: "AWAITING_SETTLEMENT" }, data: { status: "SETTLED", settledAt: new Date() } });
-    if (title.kind === TitleKind.RECEIVABLE) {
-      await emitAccountingBusinessEvent(
-        {
-          externalKey: `settlement:title:${title.id}`,
-          type: "ACQUIRER_SETTLEMENT_POSTED",
-          source: "FINANCE",
-          sourceId: title.id,
-          eventId: title.eventId,
-          producerId: title.producerId,
-          amountCents: title.amountCents,
-          payload: { bankAccountId, description: title.description }
-        },
-        tx
-      );
-    }
     await tx.auditLog.create({ data: {
       actorId: user.id, action: "TITLE_SETTLED", entity: "FinancialTitle", entityId: title.id,
       summary: `${title.kind === "RECEIVABLE" ? "Recebimento" : "Pagamento"} liquidado na conta ${bankAccountId}.`
     } });
+    await emitAccountingBusinessEvent({externalKey:`title-settlement:${id}`,type:title.kind===TitleKind.RECEIVABLE?"ACQUIRER_SETTLEMENT_POSTED":"FINANCIAL_TITLE_SETTLED",source:"FINANCE",sourceId:id,eventId:title.eventId,producerId:title.producerId,amountCents:title.amountCents},tx);
     return { id, status: "SETTLED" };
   }, { maxWait: 5000, timeout: 10000 });
 }

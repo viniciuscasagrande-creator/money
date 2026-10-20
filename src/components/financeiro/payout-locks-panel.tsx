@@ -643,7 +643,7 @@ export function PayoutLocksPanel({ onChanged }: { onChanged?: () => void }) {
                           {!internal && tr.status === "APPROVED" && (
                             <Button size="sm" variant="outline" disabled={busy} onClick={() => actOnTransfer(tr.id, "PRODUCER_ACCEPT")}>Confirmar aceite</Button>
                           )}
-                          {internal && (tr.status === "APPROVED" || tr.status === "PRODUCER_ACCEPTED") && (
+                          {internal && tr.status === "PRODUCER_ACCEPTED" && (
                             <Button size="sm" variant="outline" disabled={busy} onClick={() => actOnTransfer(tr.id, "EXECUTE")}>Executar transferência</Button>
                           )}
                           {internal && tr.status === "EXECUTED" && (

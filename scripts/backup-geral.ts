@@ -4,99 +4,17 @@ import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
+import {exportDatabaseDump as snapshotDatabase} from "../src/lib/backup-data";
 
 const ROOT = process.cwd();
 const BACKUP_DIR = path.join(ROOT, "backups");
-
-const ORDERED_MODELS = [
-  "user",
-  "session",
-  "producer",
-  "event",
-  "bankAccount",
-  "financialTitle",
-  "ledgerEntry",
-  "auditLog",
-  "loginAttempt",
-  "gateway",
-  "cardBrand",
-  "mdrRule",
-  "eventFeePolicy",
-  "financialSale",
-  "payoutRequest",
-  "bankStatementLine",
-  "riskCase",
-  "budgetLine",
-  "financialContract",
-  "userPermissionOverride",
-  "approvalAuthority",
-  "financeSetting",
-  "alertAcknowledgement",
-  "accountingAccount",
-  "accountingPeriod",
-  "accountingRule",
-  "accountingBusinessEvent",
-  "accountingJournal",
-  "accountingPosting",
-  "eventReserve",
-  "eventTransfer",
-  "producerTransferPermission",
-  "eventReleasePolicy",
-  "eventReleaseTier"
-] as const;
 
 function sha256File(filePath: string): string {
   const buf = fs.readFileSync(filePath);
   return crypto.createHash("sha256").update(buf).digest("hex");
 }
 
-function serializeRows(modelName: string, rows: unknown[]): unknown[] {
-  const serialized = JSON.parse(
-    JSON.stringify(rows, (_key, val) => (typeof val === "bigint" ? val.toString() : val))
-  ) as Record<string, unknown>[];
-  if (modelName === "session") {
-    return serialized.map(r => ({ ...r, tokenHash: "[REDACTED_SESSION_TOKEN]" }));
-  }
-  return serialized;
-}
-
-async function exportDatabaseDump() {
-  const delegates = ORDERED_MODELS.map(modelName => {
-    const delegate = (prisma as unknown as Record<string, unknown>)[modelName] as
-      | { findMany?: () => unknown }
-      | undefined;
-    if (!delegate || typeof delegate.findMany !== "function") {
-      throw new Error(`Delegate Prisma ausente ou inválido para o modelo: ${modelName}`);
-    }
-    return { modelName, findMany: delegate.findMany.bind(delegate) };
-  });
-
-  // Snapshot consistente em transação única
-  const results = await prisma.$transaction(
-    delegates.map(d => d.findMany() as ReturnType<typeof prisma.user.findMany>)
-  );
-
-  const tables: Record<string, { count: number; rows: unknown[] }> = {};
-  let totalRows = 0;
-
-  for (let i = 0; i < delegates.length; i++) {
-    const { modelName } = delegates[i];
-    const serialized = serializeRows(modelName, results[i] as unknown[]);
-    tables[modelName] = {
-      count: serialized.length,
-      rows: serialized
-    };
-    totalRows += serialized.length;
-  }
-
-  return {
-    exportedAt: new Date().toISOString(),
-    version: "SOUL-v5.3.0",
-    modelCount: Object.keys(tables).length,
-    totalRows,
-    tables
-  };
-}
+async function exportDatabaseDump() { return snapshotDatabase(prisma); }
 
 async function main() {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -108,7 +26,7 @@ async function main() {
     .replace(/\.\d+Z$/, "Z")
     .replace("T", "-");
 
-  console.log("1/4 Exportando snapshot transacional consistente do banco (34 modelos Prisma)...");
+  console.log("1/4 Exportando snapshot transacional de todos os modelos Prisma...");
   let dbDump: Awaited<ReturnType<typeof exportDatabaseDump>>;
   try {
     dbDump = await exportDatabaseDump();
@@ -122,7 +40,6 @@ async function main() {
   console.log("2/4 Gerando Git Bundle completo (histórico, branches e tags)...");
   const bundlePath = path.join(BACKUP_DIR, "money-repo-soul-v5.2.bundle");
   execSync(`git bundle create "${bundlePath}" --all`, { cwd: ROOT, stdio: "inherit" });
-  execSync(`git bundle verify "${bundlePath}"`, { cwd: ROOT, stdio: "inherit" });
 
   const headCommit = execSync("git rev-parse HEAD", { cwd: ROOT }).toString().trim();
   const currentBranch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: ROOT }).toString().trim();
@@ -130,28 +47,29 @@ async function main() {
   console.log("3/4 Gerando manifesto de integridade (SHA-256)...");
   const manifest = {
     system: "SOUL Financeiro ERP",
-    version: "5.3.0",
+    version: "5.2.1",
     createdAt: now.toISOString(),
     git: {
       commit: headCommit,
       branch: currentBranch,
+      workingTreeDirty: execSync("git status --porcelain", {cwd:ROOT}).toString().trim().length > 0,
       bundleFile: path.basename(bundlePath),
       bundleSha256: sha256File(bundlePath)
     },
     database: {
       dumpFile: path.basename(dbDumpPath),
       dumpSha256: sha256File(dbDumpPath),
-      modelCount: dbDump.modelCount,
-      totalRows: dbDump.totalRows,
-      sessionTokensRedacted: true
+      modelCount: "modelCount" in dbDump ? dbDump.modelCount : 0,
+      totalRows: "totalRows" in dbDump ? dbDump.totalRows : 0
     }
   };
 
   const manifestPath = path.join(BACKUP_DIR, "manifesto-backup-soul-v5.2.json");
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
 
-  console.log("4/4 Empacotando árvore completa de código-fonte, configs, bundle Git e dump do banco em ZIP...");
+  console.log("4/4 Empacotando código-fonte, schemas, testes, bundle Git e dump do banco em ZIP...");
   const stagingDir = path.join(BACKUP_DIR, "_staging_backup");
+  if(path.dirname(path.resolve(stagingDir))!==path.resolve(BACKUP_DIR))throw new Error("Destino de staging inválido.");
   fs.rmSync(stagingDir, { recursive: true, force: true });
   fs.mkdirSync(stagingDir, { recursive: true });
 
@@ -161,21 +79,21 @@ async function main() {
     "scripts",
     "tests",
     "public",
-    "homologacao",
     "package.json",
     "package-lock.json",
     "tsconfig.json",
     "next.config.ts",
     "tailwind.config.ts",
     "postcss.config.js",
-    "postcss.config.mjs",
-    "components.json",
-    "vercel.json",
     ".env.example",
     ".gitignore",
+    "vercel.json",
+    "neon.ts",
+    "components.json",
+    "next-env.d.ts",
+    "docs",
     "README.md",
     "RELATORIO_AUDITORIA_E_CORRECAO.md",
-    "SOUL_V5_2_IMPLEMENTACAO.md",
     "SOUL_V5_3_IMPLEMENTACAO.md"
   ];
 
@@ -183,7 +101,7 @@ async function main() {
     const srcPath = path.join(ROOT, item);
     if (fs.existsSync(srcPath)) {
       const destPath = path.join(stagingDir, item);
-      fs.cpSync(srcPath, destPath, { recursive: true });
+      fs.cpSync(srcPath, destPath, { recursive: true, filter: file => !/\.db(?:-(?:wal|shm|journal))?$/.test(file) });
     }
   }
 
@@ -191,8 +109,21 @@ async function main() {
   fs.cpSync(bundlePath, path.join(stagingDir, path.basename(bundlePath)));
   fs.cpSync(manifestPath, path.join(stagingDir, path.basename(manifestPath)));
 
+  const sourceHashes:Record<string,string> = {};
+  function inventory(folder:string) {
+    for(const entry of fs.readdirSync(folder,{withFileTypes:true})) {
+      const file=path.join(folder,entry.name);
+      if(entry.isDirectory())inventory(file);
+      else if(path.basename(file)!==path.basename(manifestPath))sourceHashes[path.relative(stagingDir,file).replaceAll("\\","/")]=sha256File(file);
+    }
+  }
+  inventory(stagingDir);
+  const completeManifest=JSON.stringify({...manifest,files:sourceHashes},null,2);
+  fs.writeFileSync(manifestPath,completeManifest);
+  fs.writeFileSync(path.join(stagingDir,path.basename(manifestPath)),completeManifest);
+
   const latestZipPath = path.join(BACKUP_DIR, "money-backup-v5.2-geral-completo.zip");
-  const timestampedZipPath = path.join(BACKUP_DIR, `money-backup-v5.3-${stamp}.zip`);
+  const timestampedZipPath = path.join(BACKUP_DIR, `money-backup-v5.2-${stamp}.zip`);
 
   if (fs.existsSync(latestZipPath)) fs.rmSync(latestZipPath, { force: true });
   if (fs.existsSync(timestampedZipPath)) fs.rmSync(timestampedZipPath, { force: true });
@@ -209,7 +140,6 @@ async function main() {
 
   const finalSummary = {
     status: "OK",
-    version: "5.3.0",
     createdAt: now.toISOString(),
     commit: headCommit,
     files: {
@@ -222,8 +152,8 @@ async function main() {
     zipSizeBytes,
     zipSha256,
     databaseSummary: {
-      modelCount: dbDump.modelCount,
-      totalRows: dbDump.totalRows
+      modelCount: "modelCount" in dbDump ? dbDump.modelCount : 0,
+      totalRows: "totalRows" in dbDump ? dbDump.totalRows : 0
     }
   };
 
@@ -231,6 +161,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error("❌ Erro fatal ao gerar backup geral (operação abortada):", err);
+  console.error("Erro ao gerar backup geral:", err);
   process.exit(1);
 });

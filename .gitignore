@@ -19,3 +19,7 @@ backups/
 
 .vercel
 .env*
+!.env.example
+db-dump-*.json
+manifesto-backup-*.json
+*.bundle

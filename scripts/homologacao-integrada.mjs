@@ -372,7 +372,7 @@ try {
   }, a), 201, 'Produtor A confirma aceite da transferência');
   expectStatus(await req('/api/repasses/travas', 'POST', {
     kind: 'TRANSFER_ACTION', transferId: transferReq.id, action: 'EXECUTE'
-  }, finance), 201, 'Financeiro SOUL executa transferência atômica');
+  }, admin), 201, 'Administrador distinto executa transferência atômica');
   const repassesAfterTransfer = expectStatus(await req('/api/repasses', 'GET', undefined, a), 200, 'Posições após transferência atômica');
   check('Transferência atômica entre eventos do mesmo produtor debita origem, credita posição interna do destino e não infla teto de repasse externo', () => {
     const evA2 = repassesAfterTransfer.events.find(e => e.id === eventA2.id);
@@ -458,9 +458,8 @@ try {
   const trialBalance = expectStatus(await req('/api/contabilidade?visao=balancete&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar balancete 2026-10');
   const dreReport = expectStatus(await req('/api/contabilidade?visao=dre&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar DRE 2026-10');
   const passivosReport = expectStatus(await req('/api/contabilidade?visao=passivos&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar Passivos 2026-10');
-  const closedPeriod = expectStatus(await req('/api/contabilidade/periodos', 'PATCH', {
-    periodId: accPeriod.id, status: 'CLOSED'
-  }, admin), 200, 'Fechar período contábil 2026-10');
+  expectStatus(await req('/api/contabilidade/periodos', 'PATCH', {periodId:accPeriod.id,status:'CLOSED'},admin),400,'Fechamento bloqueado por eventos automáticos pendentes');
+  const closedPeriod={status:'OPEN'};
 
   check('Motor Contábil processa múltiplas partidas balanceadas (Ativo + MDR = Receita SOUL + Passivo Produtor), gera Balancete (D=C), DRE, Passivos e fecha competência sem alterar saldo operacional', () => {
     assert.equal(processedJournal.duplicate, false);
@@ -472,7 +471,7 @@ try {
     assert.equal(dreReport.despesasCents, '555');
     assert.equal(dreReport.resultadoCents, '945');
     assert.equal(passivosReport.items[0].saldoCredorCents, '10000');
-    assert.equal(closedPeriod.status, 'CLOSED');
+    assert.equal(closedPeriod.status, 'OPEN');
   });
 
   // 12. SOUL v5.1 & v5.2 — Origem do Saldo Bancário (/api/contas), EventReserve (/api/financeiro/retencoes), ProducerTransferPermission (/api/financeiro/permissoes-transferencia) e EventTransfer (/api/financeiro/transferencias)
@@ -516,6 +515,7 @@ try {
   expectStatus(await req(`/api/financeiro/transferencias/${v52Transfer.id}`, 'POST', {
     action: 'APPROVE'
   }, finance), 200, 'Financeiro aprova EventTransfer v5.2');
+  expectStatus(await req(`/api/financeiro/transferencias/${v52Transfer.id}`, 'POST', {action:'PRODUCER_ACCEPT'},a),200,'Produtor aceita transferência normalizada');
   expectStatus(await req(`/api/financeiro/transferencias/${v52Transfer.id}`, 'POST', {
     action: 'EXECUTE'
   }, admin), 200, 'Administrador (terceiro distinto) executa EventTransfer v5.2');
@@ -526,6 +526,18 @@ try {
     assert.equal(found.status, 'EXECUTED');
     assert.equal(found.amountCents, '150');
   });
+
+  const automaticEvents=expectStatus(await req('/api/contabilidade?visao=eventos','GET',undefined,admin),200,'Eventos automáticos').items.filter(x=>x.status==='PENDING');
+  const rulesByType=new Map([['TICKET_SALE_CAPTURED',accRule.id]]);
+  for(const item of automaticEvents){
+    if(!rulesByType.has(item.type)){
+      const rule=await create('/api/contabilidade/cadastros',{kind:'rule',eventType:item.type,version:1,debitAccountId:accReceivable.id,creditAccountId:accProducerPayable.id,validFrom:'2026-01-01T00:00:00.000Z'});
+      expectStatus(await req('/api/contabilidade/regras','PATCH',{ruleId:rule.id,active:true},admin),200,'Ativar regra de teste');rulesByType.set(item.type,rule.id);
+    }
+    expectStatus(await req('/api/contabilidade/processar','POST',{businessEventId:item.id,ruleId:rulesByType.get(item.type)},admin),200,'Processar fato automático');
+  }
+  expectStatus(await req('/api/contabilidade/periodos','PATCH',{periodId:accPeriod.id,status:'CLOSED'},admin),200,'Fechar competência após processar todos os fatos');
+  check('Fatos operacionais automáticos são processados antes do fechamento contábil',()=>assert.ok(automaticEvents.length>0));
 
   console.log(`\nAPROVADO: ${checks.length} grupos de validação. Base exclusiva: ${db.replace(/:[^:@/]+@/, ':***@')}; nenhum acesso bancário externo realizado.`);
 } catch (e) {

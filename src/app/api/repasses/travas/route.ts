@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { requestEventTransfer, actOnEventTransfer, createEventReserve, changeEventReserve } from "@/lib/event-finance";
+import { hasCapability } from "@/lib/governance";
 import { z } from "zod";
 import { authorize, fail, isInternal } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { apiCatch } from "@/lib/validation";
-import { ensureApprovalAuthority, hasCapability } from "@/lib/governance";
-import { emitAccountingBusinessEvent } from "@/lib/accounting-integration";
 import { DEFAULT_PROGRESSIVE_TIERS, PAYOUT_LOCK_CATALOG, evaluateEventTransferEligibility } from "@/lib/control-math";
 import {
   RETENTION_CATEGORY_LABELS,
@@ -180,278 +179,27 @@ export async function POST(request: NextRequest) {
   try {
     const input = postSchema.parse(await request.json());
 
-    // Only TRANSFER_REQUEST and TRANSFER_ACTION (PRODUCER_ACCEPT) can be called by PRODUCER
-    if (!internal) {
-      if (input.kind === "TRANSFER_REQUEST") {
-        // Allowed for producer (validated inside transaction)
-      } else if (input.kind === "TRANSFER_ACTION" && input.action === "PRODUCER_ACCEPT") {
-        // Allowed for producer (validated inside transaction)
-      } else {
-        return fail("Acesso restrito ao Financeiro Interno SOUL.", 403);
-      }
-    }
-
+    if (input.kind === "TRANSFER_REQUEST") return NextResponse.json(await requestEventTransfer(input,user),{status:201});
+    if (input.kind === "TRANSFER_ACTION") return NextResponse.json(await actOnEventTransfer(input.transferId,input.action,user,input.reason),{status:201});
+    if (!internal) return fail("Acesso restrito ao Financeiro.",403);
     const result = await prisma.$transaction(async tx => {
+      if (!await hasCapability(user,"PAYOUT_APPROVE",tx)) return ruleError("Sem permissão para alterar políticas financeiras.");
       const now = new Date().toISOString();
-
       if (input.kind === "PRODUCER_POLICY_SAVE") {
-        const producer = await tx.producer.findUnique({ where: { id: input.producerId } });
-        if (!producer) return ruleError("Produtor não encontrado.");
-        const current = await loadProducerFinancialPolicy(tx, input.producerId);
-        const saved = {
-          ...current,
-          allowPayoutRequests: input.allowPayoutRequests,
-          allowAdvanceRequests: input.allowAdvanceRequests,
-          allowEventTransfers: input.allowEventTransfers,
-          allowedTransferEventIds: input.allowedTransferEventIds ?? current.allowedTransferEventIds,
-          maxSingleTransferCents: input.maxSingleTransferCents ?? current.maxSingleTransferCents,
-          maxTransferPercentBps: input.maxTransferPercentBps ?? current.maxTransferPercentBps,
-          maxTransfersPerEvent: input.maxTransfersPerEvent ?? current.maxTransfersPerEvent,
-          approvalPolicy: input.approvalPolicy ?? current.approvalPolicy,
-          updatedAt: now
-        };
-        await tx.financeSetting.upsert({
-          where: { key: `producer_policy:${input.producerId}` },
-          create: { key: `producer_policy:${input.producerId}`, value: JSON.stringify(saved), changedById: user.id },
-          update: { value: JSON.stringify(saved), changedById: user.id }
-        });
-        await tx.auditLog.create({
-          data: {
-            actorId: user.id,
-            action: "PRODUCER_FINANCIAL_POLICY_SAVED",
-            entity: "ProducerFinancialPolicy",
-            entityId: input.producerId,
-            summary: `Política financeira do produtor ${producer.name} atualizada (repasses=${saved.allowPayoutRequests}, antecipações=${saved.allowAdvanceRequests}, transferências=${saved.allowEventTransfers}).`
-          }
-        });
-        return { id: input.producerId, policy: saved };
+        const producer = await tx.producer.findUnique({where:{id:input.producerId}});
+        if(!producer)return ruleError("Produtor inexistente.");
+        const current=await loadProducerFinancialPolicy(tx,input.producerId);
+        const saved={...current,...input,updatedAt:now};
+        const key=`producer_policy:${input.producerId}`;
+        await tx.financeSetting.upsert({where:{key},create:{key,value:JSON.stringify(saved),changedById:user.id},update:{value:JSON.stringify(saved),changedById:user.id}});
+        await tx.auditLog.create({data:{actorId:user.id,entity:"ProducerFinancialPolicy",entityId:producer.id,action:"PRODUCER_FINANCIAL_POLICY_SAVED",summary:"Política financeira atualizada."}});
+        return {id:producer.id,policy:saved};
       }
-
-      if (input.kind === "TRANSFER_REQUEST") {
-        const [sourceEv, targetEv] = await Promise.all([
-          tx.event.findUnique({ where: { id: input.sourceEventId }, include: { producer: { select: { name: true, active: true } } } }),
-          tx.event.findUnique({ where: { id: input.targetEventId } })
-        ]);
-        if (!sourceEv || !targetEv || !sourceEv.producer.active) return ruleError("Evento de origem ou destino indisponível.");
-        if (!internal && sourceEv.producerId !== user.producerId) return ruleError("Evento de origem não pertence ao produtor autenticado.");
-
-        const [prodPolicy, sourceAvail, allTransfers] = await Promise.all([
-          loadProducerFinancialPolicy(tx, sourceEv.producerId),
-          eventAvailability(tx, sourceEv.id),
-          loadEventTransfers(tx)
-        ]);
-        const check = evaluateEventTransferEligibility({
-          sourceProducerId: sourceEv.producerId,
-          targetProducerId: targetEv.producerId,
-          sourceEventId: sourceEv.id,
-          targetEventId: targetEv.id,
-          amountCents: BigInt(input.amountCents),
-          sourceFinancialAvailableCents: sourceAvail.repasseCents,
-          sourceLockBlockingReasons: sourceAvail.lockPolicy.active ? sourceAvail.lockEvaluation.blockingReasons : [],
-          allowEventTransfers: prodPolicy.allowEventTransfers,
-          allowedTransferEventIds: prodPolicy.allowedTransferEventIds,
-          maxSingleTransferCents: /^\d+$/.test(prodPolicy.maxSingleTransferCents) ? BigInt(prodPolicy.maxSingleTransferCents) : 0n,
-          maxTransferPercentBps: prodPolicy.maxTransferPercentBps,
-          maxTransfersPerEvent: prodPolicy.maxTransfersPerEvent,
-          currentSourceTransferCount: sourceAvail.outgoingTransferCount
-        });
-        if (!check.allowed) return ruleError(check.errors[0]);
-
-        const record: EventTransferRecord = {
-          id: randomUUID(),
-          producerId: sourceEv.producerId,
-          producerName: sourceEv.producer.name,
-          sourceEventId: sourceEv.id,
-          sourceEventName: sourceEv.name,
-          targetEventId: targetEv.id,
-          targetEventName: targetEv.name,
-          amountCents: input.amountCents,
-          reason: input.reason.trim(),
-          status: "REQUESTED",
-          requestedById: user.id,
-          approvedById: null,
-          producerAcceptedById: null,
-          executedById: null,
-          rejectionReason: null,
-          createdAt: now,
-          updatedAt: now
-        };
-        const nextList = [record, ...allTransfers];
-        await tx.financeSetting.upsert({
-          where: { key: "event_transfers:all" },
-          create: { key: "event_transfers:all", value: JSON.stringify(nextList), changedById: user.id },
-          update: { value: JSON.stringify(nextList), changedById: user.id }
-        });
-        await tx.auditLog.create({
-          data: {
-            actorId: user.id,
-            action: "EVENT_TRANSFER_REQUESTED",
-            entity: "EventTransfer",
-            entityId: record.id,
-            summary: `Transferência interna solicitada (${sourceEv.name} -> ${targetEv.name}, ${input.amountCents} centavos). Saldo reservado na origem.`
-          }
-        });
-        return { id: record.id, status: record.status };
-      }
-
-      if (input.kind === "TRANSFER_ACTION") {
-        const allTransfers = await loadEventTransfers(tx);
-        const idx = allTransfers.findIndex(t => t.id === input.transferId);
-        if (idx === -1) return ruleError("Transferência entre eventos não encontrada.");
-        const current = allTransfers[idx];
-        if (!internal && current.producerId !== user.producerId) return ruleError("Operação não pertence ao produtor autenticado.");
-        const prodPolicy = await loadProducerFinancialPolicy(tx, current.producerId);
-
-        if (input.action === "APPROVE") {
-          if (!internal || current.status !== "REQUESTED") return ruleError("Apenas solicitações pendentes podem ser aprovadas pelo Financeiro SOUL.");
-          if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de decisão financeira (PAYOUT_APPROVE).");
-          if (current.requestedById === user.id) return ruleError("Segregação de funções: solicitante não pode aprovar a própria transferência.");
-          await ensureApprovalAuthority(tx, user, "REPASSE", BigInt(current.amountCents));
-          if (prodPolicy.approvalPolicy === "DUAL_INTERNAL" && !current.approvedById) {
-            allTransfers[idx] = { ...current, approvedById: user.id, updatedAt: now };
-          } else if (prodPolicy.approvalPolicy === "DUAL_INTERNAL") {
-            if (current.approvedById === user.id) return ruleError("Política DUAL_INTERNAL exige segunda aprovação por outro usuário interno.");
-            allTransfers[idx] = { ...current, status: "APPROVED", secondApprovedById: user.id, updatedAt: now };
-          } else {
-            allTransfers[idx] = { ...current, status: "APPROVED", approvedById: user.id, updatedAt: now };
-          }
-        } else if (input.action === "REJECT") {
-          if (!internal || !["REQUESTED", "APPROVED"].includes(current.status)) return ruleError("Esta transferência não pode ser reprovada no estado atual.");
-          if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de decisão financeira (PAYOUT_APPROVE).");
-          if (!input.reason || input.reason.trim().length < 5) return ruleError("Informe o motivo da reprovação (mínimo 5 caracteres).");
-          allTransfers[idx] = { ...current, status: "REJECTED", rejectionReason: input.reason.trim(), updatedAt: now };
-        } else if (input.action === "PRODUCER_ACCEPT") {
-          if (user.role !== "PRODUCER" || user.producerId !== current.producerId) {
-            return ruleError("O aceite formal da transferência é exclusivo do produtor titular.");
-          }
-          if (current.status !== "APPROVED") return ruleError("O aceite do produtor exige aprovação prévia do Financeiro SOUL.");
-          allTransfers[idx] = { ...current, status: "PRODUCER_ACCEPTED", producerAcceptedById: user.id, updatedAt: now };
-        } else if (input.action === "EXECUTE") {
-          if (!internal || current.status !== "PRODUCER_ACCEPTED") {
-            return ruleError("A execução atômica exige aprovação financeira e aceite formal do produtor (PRODUCER_ACCEPTED).");
-          }
-          if (!await hasCapability(user, "PAYOUT_SETTLE", tx)) return ruleError("Sem permissão para executar transferência interna (PAYOUT_SETTLE).");
-          if (current.requestedById === user.id || current.approvedById === user.id || current.secondApprovedById === user.id) {
-            return ruleError("Segregação de funções: a execução exige pessoa distinta do solicitante e do aprovador.");
-          }
-          if (!prodPolicy.allowEventTransfers) return ruleError("Permissão de transferência revogada para este produtor.");
-          const sourceAvail = await eventAvailability(tx, current.sourceEventId);
-          if (sourceAvail.lockPolicy.active && sourceAvail.lockEvaluation.blockingReasons.length > 0) {
-            return ruleError(sourceAvail.lockEvaluation.blockingReasons[0]);
-          }
-          if (sourceAvail.transferMarginCents < 0n) {
-            return ruleError("Saldo elegível insuficiente na origem após novas retenções ou riscos.");
-          }
-          allTransfers[idx] = { ...current, status: "EXECUTED", executedById: user.id, updatedAt: now };
-          await emitAccountingBusinessEvent(
-            {
-              externalKey: `transfer:lockpanel:${current.id}`,
-              type: "INTERNAL_EVENT_TRANSFER_EXECUTED",
-              source: "FINANCE",
-              sourceId: current.id,
-              eventId: current.sourceEventId,
-              producerId: current.producerId,
-              amountCents: BigInt(current.amountCents),
-              payload: { sourceEventId: current.sourceEventId, targetEventId: current.targetEventId, reason: current.reason }
-            },
-            tx
-          );
-        } else {
-          if (!internal || current.status !== "EXECUTED") return ruleError("Apenas transferências concluídas podem sofrer estorno compensatório.");
-          if (!await hasCapability(user, "PAYOUT_SETTLE", tx)) return ruleError("Sem permissão para estorno financeiro (PAYOUT_SETTLE).");
-          if (!input.reason || input.reason.trim().length < 5) return ruleError("Informe a justificativa do estorno compensatório.");
-          allTransfers[idx] = { ...current, status: "REVERSED", rejectionReason: input.reason.trim(), updatedAt: now };
-        }
-
-        await tx.financeSetting.upsert({
-          where: { key: "event_transfers:all" },
-          create: { key: "event_transfers:all", value: JSON.stringify(allTransfers), changedById: user.id },
-          update: { value: JSON.stringify(allTransfers), changedById: user.id }
-        });
-        await tx.auditLog.create({
-          data: {
-            actorId: user.id,
-            action: `EVENT_TRANSFER_${input.action}`,
-            entity: "EventTransfer",
-            entityId: current.id,
-            summary: `Transferência entre eventos (${current.sourceEventName} -> ${current.targetEventName}) atualizada para ${allTransfers[idx].status}.`
-          }
-        });
-        return { id: current.id, status: allTransfers[idx].status };
-      }
-
       const event = await tx.event.findUnique({ where: { id: input.eventId } });
       if (!event) return ruleError("Evento não encontrado.");
 
-      if (input.kind === "RETENTION_CREATE") {
-        if (BigInt(input.amountCents) <= 0n) return ruleError("O valor da retenção deve ser maior que zero.");
-        const current = await loadEventRetentions(tx, input.eventId);
-        const created: EventRetentionItem = {
-          id: randomUUID(),
-          eventId: input.eventId,
-          category: input.category,
-          description: input.description.trim(),
-          beneficiary: input.beneficiary.trim(),
-          documentRef: input.documentRef.trim(),
-          ownerName: input.ownerName.trim(),
-          dueDate: input.dueDate ?? null,
-          amountCents: input.amountCents,
-          status: "ACTIVE",
-          createdAt: now,
-          updatedAt: now
-        };
-        const updated = [created, ...current];
-        await tx.financeSetting.upsert({
-          where: { key: `retentions:${input.eventId}` },
-          create: { key: `retentions:${input.eventId}`, value: JSON.stringify(updated), changedById: user.id },
-          update: { value: JSON.stringify(updated), changedById: user.id }
-        });
-        await emitAccountingBusinessEvent(
-          {
-            externalKey: `retention:lockpanel:${created.id}`,
-            type: "MANDATORY_RETENTION_CREATED",
-            source: "FINANCE",
-            sourceId: created.id,
-            eventId: input.eventId,
-            producerId: event.producerId,
-            amountCents: BigInt(input.amountCents),
-            payload: { category: input.category, description: created.description, beneficiary: created.beneficiary }
-          },
-          tx
-        );
-        await tx.auditLog.create({
-          data: {
-            actorId: user.id,
-            action: "RETENTION_CREATED",
-            entity: "EventRetention",
-            entityId: created.id,
-            summary: `Retenção obrigatória (${input.category}) registrada no evento ${event.name}: ${input.description} (${input.amountCents} centavos).`
-          }
-        });
-        return { id: created.id, status: created.status };
-      }
-
-      if (input.kind === "RETENTION_STATUS") {
-        const current = await loadEventRetentions(tx, input.eventId);
-        const idx = current.findIndex(r => r.id === input.retentionId);
-        if (idx === -1) return ruleError("Retenção não encontrada para este evento.");
-        current[idx] = { ...current[idx], status: input.status, updatedAt: now };
-        await tx.financeSetting.upsert({
-          where: { key: `retentions:${input.eventId}` },
-          create: { key: `retentions:${input.eventId}`, value: JSON.stringify(current), changedById: user.id },
-          update: { value: JSON.stringify(current), changedById: user.id }
-        });
-        await tx.auditLog.create({
-          data: {
-            actorId: user.id,
-            action: `RETENTION_${input.status}`,
-            entity: "EventRetention",
-            entityId: input.retentionId,
-            summary: `Status da retenção alterado para ${input.status} no evento ${event.name}. Justificativa: ${input.reason.trim()}`
-          }
-        });
-        return { id: input.retentionId, status: input.status };
-      }
+      if (input.kind === "RETENTION_CREATE") return createEventReserve(tx,input,user);
+      if (input.kind === "RETENTION_STATUS") return changeEventReserve(tx,input.retentionId,input.status,input.reason,user,input.eventId);
 
       if (input.kind === "LOCK_POLICY_SAVE") {
         if (input.manualBlockActive && (!input.manualBlockReason || input.manualBlockReason.trim().length < 5)) {
@@ -520,7 +268,7 @@ export async function POST(request: NextRequest) {
         }
       });
       return { id: input.eventId, channel: ext.channel };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, {isolationLevel: Prisma.TransactionIsolationLevel.Serializable});
     return NextResponse.json(result, { status: 201 });
   } catch (e) {
     const x = apiCatch(e);

@@ -1,46 +1,30 @@
+import {emitAccountingBusinessEvent} from "@/lib/accounting-integration";
 import { Prisma, PayoutStatus, PayoutType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseCents } from "@/lib/money";
 import { adjustedAvailability } from "@/lib/control-math";
 import type { SessionUser } from "@/lib/auth";
 import { ensureApprovalAuthority, hasCapability } from "@/lib/governance";
-import { emitAccountingBusinessEvent } from "@/lib/accounting-integration";
 
-import { extendedSaleBreakdown, ruleError, saleBreakdown } from "@/lib/split-calculation";
+import { ruleError, saleBreakdown } from "@/lib/split-calculation";
 export { nonnegativeCents, percentageCents, ruleError, saleBreakdown } from "@/lib/split-calculation";
 
 export async function registerSale(raw: {
   eventId: string; externalReference: string; mdrRuleId: string; unitPriceCents: string; quantity: number
 }, user: SessionUser) {
   return prisma.$transaction(async tx => {
-    const [event, mdr, fee, extraFixedSetting, feeExt] = await Promise.all([
+    const [event, mdr, fee, extraFixedSetting] = await Promise.all([
       tx.event.findUnique({ where: { id: raw.eventId }, include: { producer: { select: { active: true } } } }),
       tx.mdrRule.findUnique({ where: { id: raw.mdrRuleId }, include: { gateway: true, brand: true } }),
       tx.eventFeePolicy.findUnique({ where: { eventId: raw.eventId } }),
-      tx.financeSetting.findUnique({ where: { key: `fee_fixed_extra:${raw.eventId}` } }),
-      loadEventFeeExtension(tx, raw.eventId)
+      tx.financeSetting.findUnique({ where: { key: `fee_fixed_extra:${raw.eventId}` } })
     ]);
     if (!event || !event.producer.active || event.status === "CLOSED") return ruleError("Evento indisponível.");
     if (!mdr || !mdr.active || !mdr.gateway.active || !mdr.brand.active) return ruleError("Regra de MDR indisponível.");
     if (!fee || !fee.active) return ruleError("Configure primeiro a taxa da Disk para este evento.");
     const extraFixedCents = extraFixedSetting?.value && /^\d+$/.test(extraFixedSetting.value) ? BigInt(extraFixedSetting.value) : 0n;
-    const parts = extendedSaleBreakdown({
-      unitPriceCents: parseCents(raw.unitPriceCents),
-      quantity: raw.quantity,
-      feeMode: fee.mode,
-      feeValue: fee.value,
-      feeExtraFixedCents: extraFixedCents,
-      mdrRateBps: mdr.rateBps,
-      mdrFixedCents: mdr.fixedCents,
-      producerPaysMdr: fee.producerPaysMdr,
-      channel: feeExt.channel,
-      installments: mdr.installments,
-      installmentInterestBps: feeExt.installmentInterestBps,
-      costBearer: feeExt.costBearer,
-      spreadBps: feeExt.spreadBps,
-      advancedBps: feeExt.advancedBps,
-      rebateBps: feeExt.rebateBps
-    });
+    const parts = saleBreakdown({ unitPriceCents: parseCents(raw.unitPriceCents), quantity: raw.quantity,
+      feeMode: fee.mode, feeValue: fee.value, feeExtraFixedCents: extraFixedCents, mdrRateBps: mdr.rateBps, mdrFixedCents: mdr.fixedCents, producerPaysMdr: fee.producerPaysMdr });
     const title = await tx.financialTitle.create({ data: {
       kind: "RECEIVABLE", description: `Liquidação adquirente · ${raw.externalReference}`,
       amountCents: parts.netSettlement, producerId: event.producerId, eventId: event.id, createdById: user.id
@@ -55,21 +39,9 @@ export async function registerSale(raw: {
       netSettlementCents: parts.netSettlement, producerNetCents: parts.producerNet,
       diskNetCents: parts.diskNet, receivableTitleId: title.id, createdById: user.id
     } });
-    await emitAccountingBusinessEvent(
-      {
-        externalKey: `sale:${sale.id}`,
-        type: "TICKET_SALE_CAPTURED",
-        source: feeExt.channel === "BILHETERIA" ? "BOX_OFFICE" : feeExt.channel,
-        sourceId: sale.id,
-        eventId: event.id,
-        producerId: event.producerId,
-        amountCents: parts.gross,
-        payload: parts.memory
-      },
-      tx
-    );
     await tx.auditLog.create({ data: { actorId: user.id, action: "SALE_REGISTERED", entity: "FinancialSale", entityId: sale.id,
       summary: `Venda registrada e recebível interno vinculado. Referência ${raw.externalReference}.` } });
+    await emitAccountingBusinessEvent({externalKey:`sale:${sale.id}`,type:"TICKET_SALE_CAPTURED",source:"FINANCE",sourceId:sale.id,eventId:event.id,producerId:event.producerId,amountCents:parts.gross,payload:{producerNetCents:parts.producerNet.toString(),feeCents:parts.fee.toString(),mdrCents:parts.mdr.toString()}},tx);
     return sale;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -78,7 +50,6 @@ import { repasseAvailable } from "@/lib/retention-math";
 import { releaseLimit, validateExistingPayout } from "@/lib/release-policy";
 import {
   evaluateEventPolicy,
-  loadEventFeeExtension,
   loadEventLockPolicy,
   loadEventRetentions,
   loadEventTransfers,
@@ -89,27 +60,21 @@ import {
 
 type Db = Prisma.TransactionClient;
 const reservedStatuses: PayoutStatus[] = ["REQUESTED", "APPROVED", "PRODUCER_ACCEPTED", "READY_TO_SETTLE", "SETTLED"];
-export async function eventAvailability(tx: Db, eventId: string) {
-  const [total, settled, reserved, exposure, reserves, transfersRequested, transfersExecuted, transfersExecutedIn, retentions, lockPolicy, allTransfers] = await Promise.all([
+export async function eventAvailability(tx: Db, eventId: string, options: {excludePayoutId?:string;excludeTransferId?:string} = {}) {
+  const [total, settled, reserved, exposure, retentions, lockPolicy, allTransfers] = await Promise.all([
     tx.financialSale.aggregate({ where: { eventId }, _sum: { producerNetCents: true, grossCents: true, quantity: true } }),
     tx.financialSale.aggregate({ where: { eventId, status: "SETTLED" }, _sum: { producerNetCents: true } }),
-    tx.payoutRequest.aggregate({ where: { eventId, status: { in: reservedStatuses } }, _sum: { amountCents: true } }),
+    tx.payoutRequest.aggregate({ where: { eventId, ...(options.excludePayoutId?{id:{not:options.excludePayoutId}}:{}), status: { in: reservedStatuses } }, _sum: { amountCents: true } }),
     tx.riskCase.groupBy({ by: ["status"], where: { eventId, status: { in: ["OPEN", "CONFIRMED"] } }, _sum: { exposureCents: true } }),
-    tx.eventReserve.aggregate({ where: { eventId, status: "ACTIVE" }, _sum: { amountCents: true } }),
-    tx.eventTransfer.aggregate({ where: { originEventId: eventId, status: { in: ["REQUESTED", "APPROVED"] } }, _sum: { amountCents: true } }),
-    tx.eventTransfer.aggregate({ where: { originEventId: eventId, status: "EXECUTED" }, _sum: { amountCents: true } }),
-    tx.eventTransfer.aggregate({ where: { destinationEventId: eventId, status: "EXECUTED" }, _sum: { amountCents: true } }),
     loadEventRetentions(tx, eventId),
     loadEventLockPolicy(tx, eventId),
     loadEventTransfers(tx)
   ]);
-  const prismaReserveCents = reserves._sum.amountCents ?? 0n;
-  const policyRetentionsCents = sumActiveRetentionsCents(retentions);
-  const reserveCents = prismaReserveCents + policyRetentionsCents;
-  const transferMovements = sumEventTransferMovementsCents(allTransfers, eventId);
-  const transferReservedCents = transfersRequested._sum.amountCents ?? 0n;
-  const transferExecutedCents = (transfersExecuted._sum.amountCents ?? 0n) + transferMovements.reservedOrExecutedOutCents;
-  const transferInCents = (transfersExecutedIn._sum.amountCents ?? 0n) + transferMovements.executedInCents;
+  const reserveCents = sumActiveRetentionsCents(retentions);
+  const transferMovements = sumEventTransferMovementsCents(allTransfers.filter(t=>t.id!==options.excludeTransferId), eventId);
+  const transferReservedCents = transferMovements.reservedOutCents;
+  const transferExecutedCents = transferMovements.executedOutCents;
+  const transferInCents = transferMovements.executedInCents;
   const reservedPayoutsCents = reserved._sum.amountCents ?? 0n;
   const totalCommitted = reservedPayoutsCents + transferReservedCents + transferExecutedCents;
   const openExposure = exposure.find(r => r.status === "OPEN")?._sum.exposureCents ?? 0n;
@@ -131,7 +96,7 @@ export async function eventAvailability(tx: Db, eventId: string) {
     soldTicketsCount: total._sum.quantity ?? 0,
     openRiskCents: openExposure,
     confirmedLossCents: confirmedExposure,
-    committedPayoutsCents: totalCommitted + prismaReserveCents
+    committedPayoutsCents: totalCommitted
   });
   const allowed = repasseAvailable({
     settled: base.settledCents,
@@ -202,7 +167,7 @@ export async function createPayout(raw: { eventId: string; type: PayoutType; amo
       return ruleError("Permissão bloqueada: solicitação de antecipações está desabilitada na política deste produtor.");
     }
     const capacity = await eventAvailability(tx, event.id);
-    if (capacity.lockPolicy.active && capacity.lockEvaluation.blockingReasons.length > 0) {
+    if (raw.type === "REPASSE" && capacity.lockPolicy.active && capacity.lockEvaluation.blockingReasons.length > 0) {
       return ruleError(capacity.lockEvaluation.blockingReasons[0]);
     }
     const progressive = raw.type === "REPASSE" ? await releaseLimit(tx, event.id) : null;
@@ -228,21 +193,29 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
     const audit = async (name: string, summary: string) => tx.auditLog.create({ data: { actorId: user.id, entity: "PayoutRequest", entityId: id, action: name, summary } });
     let update: Prisma.PayoutRequestUncheckedUpdateManyInput;
     let expected: PayoutStatus;
-    if (action === "APPROVE" || action === "FINANCE_SIGN" || action === "SETTLE") {
+    if (action === "APPROVE" || action === "SETTLE" || action === "FINANCE_SIGN") {
+      const event=await tx.event.findUnique({where:{id:p.eventId},include:{producer:true}});
+      if(!event||!event.producer.active||event.status==="CLOSED")return ruleError("Evento indisponível para baixa.");
+      const policy=await loadProducerFinancialPolicy(tx,p.producerId);
+      if(p.type==="REPASSE"?!policy.allowPayoutRequests:!policy.allowAdvanceRequests)return ruleError("Permissão financeira revogada.");
+      const available=await eventAvailability(tx,p.eventId,{excludePayoutId:p.id});
+      const limit=p.type==="REPASSE"?available.repasseCents:available.antecipacaoCents;
+      if(p.amountCents>limit)return ruleError("Posição financeira insuficiente após riscos, retenções e compromissos atuais.");
+      if(p.type==="REPASSE")await validateExistingPayout(tx,p);
+      if(policy.approvalPolicy==="DUAL_INTERNAL" && action!=="APPROVE" && p.approvedById===user.id)return ruleError("Dupla aprovação exige segundo responsável interno.");
       const lockPolicy = await loadEventLockPolicy(tx, p.eventId);
       if (lockPolicy.active) {
         if (lockPolicy.manualBlockActive) return ruleError(`Trava 20: Bloqueio manual justificado (${lockPolicy.manualBlockReason || "Auditoria interna"}).`);
         if (!lockPolicy.contractSigned) return ruleError("Trava 07: Contrato do evento pendente de assinatura/vigência.");
         if (!lockPolicy.producerDocsValid) return ruleError("Trava 08: Documentação cadastral/bancária do produtor pendente.");
+        if (action === "SETTLE" && !lockPolicy.reconciliationApproved) return ruleError("Conciliação obrigatória pendente antes da baixa.");
         if (lockPolicy.overdueExpensesActive) return ruleError("Trava 10: Existem despesas críticas vencidas vinculadas ao evento.");
-        if (action === "SETTLE" && !lockPolicy.reconciliationApproved) {
-          return ruleError("Trava 13: Conciliação bancária do evento pendente de conferência para baixa.");
-        }
       }
-      await validateExistingPayout(tx, p);
     }
     if (action === "APPROVE") {
       if (!internal || p.status !== "REQUESTED") return ruleError("Somente o Financeiro pode aprovar solicitações pendentes.");
+      const policy=await loadProducerFinancialPolicy(tx,p.producerId);
+      if(policy.approvalPolicy==="DUAL_INTERNAL"&&p.requestedById===user.id)return ruleError("Dupla aprovação impede autoaprovação do solicitante.");
       await ensureApprovalAuthority(tx, user, p.type, p.amountCents);
       expected = "REQUESTED"; update = { status: "APPROVED", approvedAt: now, approvedById: user.id };
     } else if (action === "REJECT") {
@@ -256,6 +229,7 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
     } else if (action === "FINANCE_SIGN") {
       if (!internal || p.status !== "PRODUCER_ACCEPTED") return ruleError("O Financeiro só pode assinar após o aceite do produtor.");
       if (!await hasCapability(user, "PAYOUT_APPROVE", tx)) return ruleError("Sem permissão de assinatura financeira.");
+      await ensureApprovalAuthority(tx,user,p.type,p.amountCents);
       expected = "PRODUCER_ACCEPTED"; update = { status: "READY_TO_SETTLE", financeSignedById: user.id, financeSignedAt: now };
     } else {
       if (!internal || p.status !== "READY_TO_SETTLE") return ruleError("É necessário concluir as aprovações e aceites antes da baixa.");
@@ -270,22 +244,10 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
       await tx.ledgerEntry.create({ data: { bankAccountId: args.bankAccountId, payoutId: id, direction: "DEBIT", origin: "PAYOUT",
         amountCents: p.amountCents, description: `${p.type} · transferência comprovada ${args.settlementReference.trim()}`,
         producerId: p.producerId, eventId: p.eventId } });
-      await emitAccountingBusinessEvent(
-        {
-          externalKey: `payout:settled:${id}`,
-          type: "PRODUCER_PAYOUT_SETTLED",
-          source: "FINANCE",
-          sourceId: id,
-          eventId: p.eventId,
-          producerId: p.producerId,
-          amountCents: p.amountCents,
-          payload: { type: p.type, bankAccountId: args.bankAccountId, settlementReference: args.settlementReference.trim() }
-        },
-        tx
-      );
     }
     const claimed = await tx.payoutRequest.updateMany({ where: { id, status: expected }, data: update });
     if (claimed.count !== 1) throw new Error("REGRA:O status foi alterado por outra operação. Atualize a tela.");
+    if(action==="SETTLE")await emitAccountingBusinessEvent({externalKey:`payout:${id}`,type:"PRODUCER_PAYOUT_SETTLED",source:"FINANCE",sourceId:id,eventId:p.eventId,producerId:p.producerId,amountCents:p.amountCents},tx);
     await audit(`PAYOUT_${action}`, action === "SETTLE" ? "Baixa contábil manual de transferência externa já realizada; nenhuma ordem bancária foi enviada." :
       action === "REJECT" ? `Reprovado: ${args.reason}` : `Etapa ${action} realizada pelo perfil ${user.role}.`);
     return { id, status: action === "SETTLE" ? "SETTLED" : update.status };

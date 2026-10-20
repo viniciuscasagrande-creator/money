@@ -10,6 +10,10 @@ export async function GET(req: NextRequest) {
   if (error) return error;
   const view = req.nextUrl.searchParams.get("visao") || "resumo";
 
+  const periodName = req.nextUrl.searchParams.get("periodo");
+  const periodViews = ["razao", "balancete", "dre", "passivos"];
+  if (periodViews.includes(view) && (!periodName || !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodName))) return fail("Informe período AAAA-MM.");
+  const periodFilter = { journal: { period: { name: periodName! } } };
   if (view === "contas") {
     const rows = await prisma.accountingAccount.findMany({ orderBy: { code: "asc" }, take: 500 });
     return NextResponse.json({ items: rows });
@@ -30,17 +34,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items: rows.map((r) => ({ ...r, amountCents: r.amountCents.toString() })) });
   }
   if (view === "razao") {
-    const period = req.nextUrl.searchParams.get("periodo");
-    const periodFilter = period && /^[0-9]{4}-[0-9]{2}$/.test(period) ? { period: { name: period } } : {};
     const rows = await prisma.accountingJournal.findMany({
-      where: periodFilter,
-      orderBy: { occurredAt: "desc" },
-      take: 250,
+      where: { period: { name: periodName! } },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take: 10000,
       include: { postings: { include: { account: { select: { code: true, name: true } } } } }
     });
+    if(rows.length===10000)return fail("Limite de lançamentos alcançado. Exporte por lotes.",413);
     return NextResponse.json({
-      periodo: period ?? null,
-      truncated: rows.length === 250,
       items: rows.map((r) => ({
         ...r,
         postings: r.postings.map((x) => ({
@@ -89,14 +90,12 @@ export async function GET(req: NextRequest) {
     });
   }
   if (view === "dre") {
-    const period = req.nextUrl.searchParams.get("periodo");
-    const periodFilter = period && /^[0-9]{4}-[0-9]{2}$/.test(period) ? { journal: { period: { name: period } } } : {};
     const rows = await prisma.accountingPosting.findMany({
       where: periodFilter,
       include: { account: { select: { code: true, name: true, type: true } } },
       take: 10000
     });
-    if (rows.length === 10000) return fail("Limite de partidas alcançado na DRE: filtre por período AAAA-MM.", 413);
+    if (rows.length === 10000) return fail("Limite de partidas alcançado. Use um período menor ou exportação por lotes.", 413);
     let receitaBruta = 0n;
     let deducoes = 0n;
     let despesas = 0n;
@@ -131,14 +130,12 @@ export async function GET(req: NextRequest) {
     });
   }
   if (view === "passivos") {
-    const period = req.nextUrl.searchParams.get("periodo");
-    const periodFilter = period && /^[0-9]{4}-[0-9]{2}$/.test(period) ? { journal: { period: { name: period } } } : {};
     const rows = await prisma.accountingPosting.findMany({
-      where: { account: { type: "LIABILITY" }, ...periodFilter },
+      where: { ...periodFilter, account: { type: "LIABILITY" } },
       include: { account: { select: { code: true, name: true } } },
       take: 10000
     });
-    if (rows.length === 10000) return fail("Limite de partidas alcançado nos passivos: filtre por período AAAA-MM.", 413);
+    if (rows.length === 10000) return fail("Limite de partidas alcançado. Use exportação por lotes.", 413);
     const byEvent = new Map<string, { eventId: string; accountCode: string; accountName: string; credit: bigint; debit: bigint }>();
     for (const r of rows) {
       const key = `${r.eventId || "CONSOLIDADO"}::${r.account.code}`;

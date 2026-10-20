@@ -17,6 +17,7 @@ $failed = $false
 $guid = [guid]::NewGuid().ToString('N')
 $dbName = "homologacao-$guid.db"
 $dbPath = Join-Path (Join-Path $root 'prisma') $dbName
+[System.IO.File]::WriteAllText($dbPath, '')
 $env:DATABASE_URL = "file:./$dbName"
 $env:ISOLATED_HOMOLOGATION = 'SIM'
 $env:HOMOLOG_ADMIN_EMAIL = 'administrador.homologacao@example.invalid'
@@ -59,7 +60,7 @@ try {
   Write-Host "==> Iniciar servidor local de homologação em $($env:HOMOLOG_BASE_URL)" -ForegroundColor Cyan
   $nextCLI = Join-Path $root 'node_modules/next/dist/bin/next'
   if (-not (Test-Path $nextCLI)) { throw 'CLI do Next.js não encontrado após instalação.' }
-  $server = Start-Process -FilePath (Get-Command node).Source -ArgumentList @($nextCLI, 'start', '-p', "$port", '-H', '127.0.0.1') -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  $server = Start-Process -FilePath (Get-Command node).Source -ArgumentList @($nextCLI, 'start', '-p', "$port", '-H', '127.0.0.1') -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
   $ready = $false
   for ($attempt = 0; $attempt -lt 40; $attempt++) {
     if ($server.HasExited) { throw "Servidor encerrou antes dos testes. Veja $stderr" }

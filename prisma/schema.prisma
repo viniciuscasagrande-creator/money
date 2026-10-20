@@ -577,18 +577,27 @@ model AccountingPosting {
 enum ReserveStatus {
   ACTIVE
   RELEASED
+  CANCELED
 }
 enum TransferStatus {
   REQUESTED
   APPROVED
+  PRODUCER_ACCEPTED
   REJECTED
   EXECUTED
+  REVERSED
 }
 model EventReserve {
   id String @id @default(cuid())
   eventId String
   event Event @relation(fields: [eventId], references: [id])
   purpose String
+  category String @default("OUTRAS_DESPESAS")
+  beneficiary String @default("")
+  documentRef String @default("")
+  ownerName String @default("")
+  dueDate DateTime?
+  updatedAt DateTime @default(now()) @updatedAt
   amountCents BigInt
   status ReserveStatus @default(ACTIVE)
   createdById String
@@ -610,6 +619,11 @@ model EventTransfer {
   requestedById String
   approvedById String?
   executedById String?
+  producerAcceptedById String?
+  producerAcceptedAt DateTime?
+  reversedAt DateTime?
+  reversalReason String?
+  updatedAt DateTime @default(now()) @updatedAt
   createdAt DateTime @default(now())
   approvedAt DateTime?
   executedAt DateTime?
@@ -624,6 +638,18 @@ model ProducerTransferPermission {
   enabled Boolean @default(false)
   maxPerTransferCents BigInt @default(0)
   updatedAt DateTime @updatedAt
+}
+
+
+// Provider delivery identity and payload digest prevent retries from duplicating titles.
+model IntegrationDelivery {
+  id String @id @default(cuid())
+  provider String
+  externalReference String
+  payloadHash String
+  titleId String @unique
+  createdAt DateTime @default(now())
+  @@unique([provider, externalReference])
 }
 
 // SOUL v5.3 — faixas comerciais de liberação por evento (sem valores padrão fictícios).
@@ -648,4 +674,3 @@ model EventReleaseTier {
   releaseBps Int
   @@unique([policyId, minSoldBps])
 }
-
