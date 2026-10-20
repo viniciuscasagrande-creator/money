@@ -22,7 +22,8 @@
     "test:unit:isolado": "node scripts/testes-sem-dependencias.mjs",
     "test:ui:static": "node scripts/verificar-ui-rotas.mjs",
     "deploy:build": "node scripts/deploy-build.mjs",
-    "vercel-build": "node scripts/deploy-build.mjs"
+    "vercel-build": "node scripts/deploy-build.mjs",
+    "backup": "tsx scripts/backup-geral.ts"
   },
   "dependencies": {
     "@neon/config": "^1.9.2",
