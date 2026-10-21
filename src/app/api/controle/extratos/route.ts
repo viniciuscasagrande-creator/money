@@ -11,14 +11,15 @@ const schema=z.object({bankAccountId:z.string().min(1),externalId:z.string().tri
 export async function GET(req:NextRequest){
   const {error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error)return error;
   const [statements,ledger]=await Promise.all([
-    prisma.bankStatementLine.findMany({take:150,orderBy:{createdAt:"desc"},include:{bankAccount:{select:{name:true}}}}),
+    prisma.bankStatementLine.findMany({take:150,orderBy:{createdAt:"desc"},include:{bankAccount:{select:{name:true}},allocations:{select:{amountCents:true}},issues:{where:{status:"OPEN"},select:{id:true}}}}),
     prisma.ledgerEntry.findMany({take:300,orderBy:{createdAt:"desc"},select:{id:true,bankAccountId:true,description:true,direction:true,amountCents:true,createdAt:true,
-      statementLine:{select:{id:true}}}})
+      origin:true,allocations:{select:{amountCents:true}},statementLine:{select:{id:true}}}})
   ]);
   return NextResponse.json({statements:statements.map(s=>({id:s.id,bankAccountId:s.bankAccountId,accountName:s.bankAccount.name,
     externalId:s.externalId,postedAt:s.postedAt.toISOString(),description:s.description,amountCents:s.amountCents.toString(),
-    direction:s.direction,status:s.status,ledgerEntryId:s.ledgerEntryId})),
-    ledger:ledger.filter(e=>!e.statementLine).map(e=>({id:e.id,bankAccountId:e.bankAccountId,description:e.description,
+    openIssues:s.issues.length,remainingCents:(s.amountCents-s.allocations.reduce((n,a)=>n+a.amountCents,0n)).toString(),direction:s.direction,status:s.status,ledgerEntryId:s.ledgerEntryId})),
+    ledger:ledger.filter(e=>e.origin!=="OPENING"&&e.amountCents>e.allocations.reduce((n,a)=>n+a.amountCents,0n)).map(e=>({id:e.id,bankAccountId:e.bankAccountId,description:e.description,
+      remainingCents:(e.amountCents-e.allocations.reduce((n,a)=>n+a.amountCents,0n)).toString(),
       direction:e.direction,amountCents:e.amountCents.toString(),createdAt:e.createdAt.toISOString()}))});
 }
 export async function POST(req:NextRequest){

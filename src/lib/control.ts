@@ -1,7 +1,7 @@
 import { Prisma, type RiskStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseCents } from "@/lib/money";
-import { ledgerMatchesStatement } from "@/lib/control-math";
+import { allocateReconciliation,writableBankDates } from "@/lib/financial-close";
 import { eventAvailability } from "@/lib/operations";
 import { isoDate } from "@/lib/validation";
 import type { SessionUser } from "@/lib/auth";
@@ -10,6 +10,7 @@ const reject = (message: string): never => { throw new Error(`REGRA:${message}`)
 export async function importStatement(input: { bankAccountId: string; externalId: string; date: string; description: string;
   direction: "CREDIT"|"DEBIT"; amountCents:string }, user: SessionUser) {
   return prisma.$transaction(async tx => {
+    await writableBankDates(tx,input.bankAccountId,[isoDate(input.date)!]);
     const account = await tx.bankAccount.findFirst({ where: { id: input.bankAccountId, active: true } });
     if (!account) return reject("Conta bancária não encontrada ou inativa.");
     const row = await tx.bankStatementLine.create({ data: {
@@ -22,22 +23,9 @@ export async function importStatement(input: { bankAccountId: string; externalId
   });
 }
 export async function reconcileStatement(statementId: string, ledgerEntryId: string, user: SessionUser) {
-  return prisma.$transaction(async tx => {
-    const [statement, ledger] = await Promise.all([
-      tx.bankStatementLine.findUnique({ where: {id:statementId} }), tx.ledgerEntry.findUnique({where:{id:ledgerEntryId}})
-    ]);
-    if (!statement || !ledger) return reject("Extrato ou lançamento do razão inexistente.");
-    if (statement.status !== "PENDING" || statement.ledgerEntryId) return reject("Linha de extrato já conciliada.");
-    if (!ledgerMatchesStatement(ledger, statement)) return reject("Conta, direção ou valor diferentes entre extrato e razão.");
-    const used = await tx.bankStatementLine.findUnique({where:{ledgerEntryId}});
-    if (used) return reject("Lançamento do razão já conciliado.");
-    const claim = await tx.bankStatementLine.updateMany({where:{ id:statementId,status:"PENDING",ledgerEntryId:null },
-      data:{status:"MATCHED",ledgerEntryId,matchedById:user.id,matchedAt:new Date()} });
-    if (claim.count !== 1) return reject("Outra sessão conciliou esta linha. Atualize a tela.");
-    await tx.auditLog.create({data:{actorId:user.id,action:"STATEMENT_MATCHED",entity:"BankStatementLine",entityId:statementId,
-      summary:`Extrato conciliado com razão ${ledgerEntryId}; sem movimentação bancária.`}});
-    return {id:statementId,status:"MATCHED"};
-  }, {isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
+  const statement=await prisma.bankStatementLine.findUnique({where:{id:statementId}});
+  if(!statement)return reject("Extrato inexistente.");
+  return allocateReconciliation(prisma,{statementId,ledgerEntryId,amountCents:statement.amountCents,requestKey:`exact:${statementId}:${ledgerEntryId}`,exact:true},user.id);
 }
 export async function registerRisk(input: {saleId:string;externalId:string;type:"REFUND"|"CHARGEBACK";
   exposureCents:string;reason:string},user:SessionUser) {

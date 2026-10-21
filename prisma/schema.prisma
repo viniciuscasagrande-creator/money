@@ -52,6 +52,10 @@ model User {
   producerId   String?
   producer     Producer? @relation(fields: [producerId], references: [id])
   sessions     Session[]
+  reconciliationAllocations ReconciliationAllocation[]
+  createdReconciliationIssues ReconciliationIssue[] @relation("IssueCreator")
+  resolvedReconciliationIssues ReconciliationIssue[] @relation("IssueResolver")
+  financialCloses FinancialClose[]
   integrationJobs IntegrationJob[]
   titles       FinancialTitle[]
   audits       AuditLog[]
@@ -134,6 +138,7 @@ model BankAccount {
   entries       LedgerEntry[]
   payouts       PayoutRequest[]
   statementLines BankStatementLine[]
+  financialCloses FinancialClose[]
   createdAt     DateTime @default(now())
 }
 
@@ -178,6 +183,7 @@ model LedgerEntry {
   eventId       String?
   event         Event? @relation(fields: [eventId], references: [id])
   statementLine BankStatementLine?
+  allocations ReconciliationAllocation[]
   createdAt     DateTime @default(now())
   @@index([bankAccountId, createdAt])
   @@index([producerId, eventId])
@@ -372,6 +378,9 @@ model BankStatementLine {
   matchedBy     User? @relation("StatementMatcher", fields: [matchedById], references: [id])
   matchedAt     DateTime?
   createdAt     DateTime @default(now())
+  allocations ReconciliationAllocation[]
+  issues ReconciliationIssue[]
+  @@index([bankAccountId, postedAt])
   @@unique([bankAccountId, externalId])
   @@index([bankAccountId, status])
 }
@@ -698,4 +707,50 @@ model IntegrationJob {
   @@unique([provider, externalReference])
   @@index([status, nextAttemptAt])
   @@index([status, leaseUntil])
+}
+model ReconciliationAllocation {
+  id String @id @default(cuid())
+  requestKey String @unique
+  statementId String
+  statement BankStatementLine @relation(fields: [statementId], references: [id])
+  ledgerEntryId String
+  ledgerEntry LedgerEntry @relation(fields: [ledgerEntryId], references: [id])
+  amountCents BigInt
+  actorId String?
+  actor User? @relation(fields: [actorId], references: [id])
+  createdAt DateTime @default(now())
+  @@index([statementId])
+  @@index([ledgerEntryId])
+}
+model ReconciliationIssue {
+  id String @id @default(cuid())
+  statementId String
+  statement BankStatementLine @relation(fields: [statementId], references: [id])
+  reason String
+  status String @default("OPEN")
+  actorId String
+  actor User @relation("IssueCreator", fields: [actorId], references: [id])
+  resolvedById String?
+  resolvedBy User? @relation("IssueResolver", fields: [resolvedById], references: [id])
+  resolution String?
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+  @@index([statementId, status])
+}
+model FinancialClose {
+  id String @id @default(cuid())
+  bankAccountId String
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
+  month String
+  endAt DateTime
+  openingBalanceCents BigInt
+  closingBalanceCents BigInt
+  declaredBalanceCents BigInt
+  creditCents BigInt
+  debitCents BigInt
+  actorId String
+  actor User @relation(fields: [actorId], references: [id])
+  createdAt DateTime @default(now())
+  @@unique([bankAccountId, month])
+  @@index([bankAccountId, endAt])
 }

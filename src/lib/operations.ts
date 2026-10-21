@@ -124,6 +124,7 @@ export async function registerSale(raw: {
 
 import { repasseAvailable } from "@/lib/retention-math";
 import { releaseLimit, validateExistingPayout } from "@/lib/release-policy";
+import { writableBankDates } from "@/lib/financial-close";
 import {
   evaluateEventPolicy,
   loadEventFeeExtension,
@@ -314,6 +315,7 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
       if (!await hasCapability(user, "PAYOUT_SETTLE", tx)) return ruleError("Sem permissão para registrar baixa financeira.");
       if (!args.settlementReference || args.settlementReference.trim().length < 8) return ruleError("Informe a referência de comprovação da transferência já realizada.");
       if (!args.bankAccountId) return ruleError("Selecione a conta da baixa.");
+      await writableBankDates(tx,args.bankAccountId,[now]);
       const account = await tx.bankAccount.updateMany({ where: { id: args.bankAccountId, active: true, balanceCents: { gte: p.amountCents } },
         data: { balanceCents: { decrement: p.amountCents } } });
       if (account.count !== 1) return ruleError("Conta inexistente, inativa ou sem saldo registrado suficiente.");

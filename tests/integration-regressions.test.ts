@@ -5,13 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import {execFileSync,spawn} from "node:child_process";
 import net from "node:net";
-import {randomBytes,createHash} from "node:crypto";
+import {randomBytes,createHash,randomUUID} from "node:crypto";
 import {PrismaClient} from "@prisma/client";
 import {exportDatabaseDump,restoreDatabaseDump} from "../src/lib/backup-data";
 import {migrateLegacyFinance} from "../src/lib/legacy-finance-migration";
 import bcrypt from "bcryptjs";
 import {changeAccountSecurity,createVerifiedSession,sessionTokenHash,SecurityError} from "../src/lib/account-security";
 import {queueRegressions} from "./helpers/integration-queue-scenarios";
+import {financialCloseRegressions} from "./helpers/financial-close-scenarios";
 
 test("regressões financeiras com persistência, idempotência e restauração isolada",async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"money-regression-"));
@@ -25,6 +26,7 @@ test("regressões financeiras com persistência, idempotência e restauração i
   const {requestEventTransfer,actOnEventTransfer,createEventReserve,changeEventReserve}=await import("../src/lib/event-finance");
   const {importTicketingReceivable}=await import("../src/lib/ticketing-import");
   const {loadEventRetentions,loadEventTransfers,defaultLockPolicy,loadEventLockPolicy,defaultProducerFinancialPolicy}=await import("../src/lib/payout-locks");
+  let closeFixture:Awaited<ReturnType<typeof financialCloseRegressions>>;
   try {
     const producer=await db.producer.create({data:{name:"Produtor regressão"}});
     const admin=await db.user.create({data:{name:"Admin teste",email:"admin@regression.invalid",passwordHash:"not-a-login",role:"ADMIN"}});
@@ -130,6 +132,9 @@ test("regressões financeiras com persistência, idempotência e restauração i
         await actOnPayout(request.id,"REJECT",au,{reason:"Encerrar cenário de regressão"});
       }finally{await db.eventReleasePolicy.delete({where:{id:policy.id}});}
     });
+    await t.test("conciliação parcial e fechamento preservam saldos, limites, permissões e competência",async()=>{
+      closeFixture=await financialCloseRegressions(db,admin.id,finance.id);
+    });
     await t.test("fila persistente: concorrência, lease, retry, reprocessamento e ausência de duplicação",async()=>{
       await queueRegressions(db,admin.id,finance.id);
     });
@@ -191,6 +196,12 @@ test("regressões financeiras com persistência, idempotência e restauração i
       try{
         let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base+"/login")).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}
         assert.ok(ready,logs);
+        assert.equal((await api(`/api/controle/fechamento?bankAccountId=${closeFixture.bankId}&month=${closeFixture.month}`,"GET",undefined,owner)).status,403);
+        const closed=await api(`/api/controle/fechamento?bankAccountId=${closeFixture.bankId}&month=${closeFixture.month}`);assert.equal(closed.status,200);assert.equal(closed.data.closed.month,closeFixture.month);
+        assert.equal((await api("/api/controle/fechamento","POST",{action:"CLOSE",bankAccountId:closeFixture.bankId,month:closeFixture.month,declaredBalanceCents:"10000"},finance)).status,403);
+        assert.equal((await api("/api/controle/extratos","POST",{bankAccountId:closeFixture.bankId,externalId:"closed-date-test",date:"2001-01-22",description:"Não importar em mês fechado",direction:"CREDIT",amountCents:"1"})).status,409);
+        assert.equal((await api("/api/controle/fechamento","POST",{action:"ALLOCATE",statementId:closeFixture.statementId,ledgerEntryId:closeFixture.ledgerId,amountCents:"1",requestKey:randomBytes(16).toString("hex")})).status,400);
+        assert.equal((await api("/api/controle/fechamento","POST",{action:"ALLOCATE",statementId:closeFixture.statementId,ledgerEntryId:closeFixture.ledgerId,amountCents:"1",requestKey:randomUUID()})).status,409);
         assert.equal((await fetch(base+"/api/auth/security")).status,401);
         const ownSessions=await api("/api/auth/security","GET",undefined,owner);
         assert.equal(ownSessions.status,200);assert.equal(ownSessions.data.items.length,1);assert.equal(ownSessions.data.items[0].current,true);

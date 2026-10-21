@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { api, Empty, ErrorNotice, Field, Loading, PageHeading, useApi, displayDate } from "@/components/financeiro/shared";
 import { FormCard, SelectField, inputClass } from "@/components/financeiro/operations-shared";
 import { fmtBRL, parseBRLToCents } from "@/lib/money";
+import { FinancialClosePanel } from "@/components/financeiro/financial-close";
 
 type Catalog = {
   accounts: { id: string; name: string; institution: string }[];
@@ -46,6 +47,8 @@ function Table({ heads, children }: { heads: string[]; children: React.ReactNode
 }
 
 type Statement = {
+  openIssues: number;
+  remainingCents: string;
   id: string;
   bankAccountId: string;
   accountName: string;
@@ -58,6 +61,7 @@ type Statement = {
   ledgerEntryId: string | null;
 };
 type Ledger = {
+  remainingCents: string;
   id: string;
   bankAccountId: string;
   description: string;
@@ -88,8 +92,8 @@ export function ReconciliationPage() {
   const statements = data?.statements ?? [];
   const ledger = data?.ledger ?? [];
   const matchedStatements = statements.filter((s) => s.status === "MATCHED");
-  const pendingStatements = statements.filter((s) => s.status === "PENDING");
-  const pendingAmountCents = pendingStatements.reduce((sum, s) => sum + BigInt(s.amountCents || "0"), 0n);
+  const pendingStatements = statements.filter((s) => s.status === "PENDING" || s.openIssues>0);
+  const pendingAmountCents = pendingStatements.reduce((sum, s) => sum + BigInt(s.remainingCents || "0"), 0n);
 
   const filteredByTab =
     tab === "PENDING"
@@ -325,7 +329,7 @@ export function ReconciliationPage() {
                       (x) =>
                         x.bankAccountId === s.bankAccountId &&
                         x.direction === s.direction &&
-                        x.amountCents === s.amountCents
+                        x.amountCents === s.amountCents && x.remainingCents === x.amountCents && s.remainingCents === s.amountCents
                     );
                     return (
                       <tr key={s.id}>
@@ -339,8 +343,8 @@ export function ReconciliationPage() {
                           {s.direction === "CREDIT" ? "Entrada" : "Saída"} · {fmtBRL(s.amountCents)}
                         </td>
                         <td>
-                          <Badge tone={s.status === "MATCHED" ? "green" : "amber"}>
-                            {s.status === "MATCHED" ? "Conciliado" : "Pendente"}
+                          <Badge tone={s.status === "MATCHED" && !s.openIssues ? "green" : "amber"}>
+                            {s.openIssues ? "Divergência aberta" : s.status === "MATCHED" ? "Conciliado" : "Pendente"}
                           </Badge>
                         </td>
                         <td>
@@ -401,6 +405,7 @@ export function ReconciliationPage() {
         </>
       )}
       <RecordDetailModal record={detailId ? { type: "extrato", id: detailId } : null} onClose={() => setDetailId(null)} />
+      <FinancialClosePanel onChanged={reload}/>
     </>
   );
 }

@@ -6,6 +6,7 @@ import {assertOwnedSchema} from "./lib/postgres-isolation.mjs";
 import {exportDatabaseDump,restoreDatabaseDump} from "../src/lib/backup-data";
 import {migrateLegacyFinance} from "../src/lib/legacy-finance-migration";
 import {queueRegressions} from "../tests/helpers/integration-queue-scenarios";
+import {financialCloseRegressions} from "../tests/helpers/financial-close-scenarios";
 
 const url=process.env.DATABASE_URL??"",schema=process.env.HOMOLOG_SCHEMA??"";
 assertOwnedSchema(url,schema);
@@ -24,6 +25,9 @@ async function main(){
       await tx.$executeRaw`INSERT INTO "Event" ("id","name","producerId","status") VALUES ('migration_origin','Origem','migration_producer','ACTIVE'),('migration_target','Destino','migration_producer','ACTIVE')`;
       await tx.$executeRaw`INSERT INTO "EventReserve" ("id","eventId","purpose","amountCents","createdById") VALUES ('migration_reserve','migration_origin','Reserva anterior',12345,'migration_actor')`;
       await tx.$executeRaw`INSERT INTO "EventTransfer" ("id","producerId","originEventId","destinationEventId","amountCents","reason","requestedById") VALUES ('migration_transfer','migration_producer','migration_origin','migration_target',2345,'Transferência anterior','migration_actor')`;
+      await tx.$executeRaw`INSERT INTO "BankAccount" ("id","name","institution","balanceCents") VALUES ('migration_bank','Banco anterior','Teste',321)`;
+      await tx.$executeRaw`INSERT INTO "LedgerEntry" ("id","direction","origin","amountCents","description","bankAccountId") VALUES ('migration_ledger','CREDIT','RECEIVABLE',321,'Conciliado anterior','migration_bank')`;
+      await tx.$executeRaw`INSERT INTO "BankStatementLine" ("id","bankAccountId","externalId","postedAt","description","direction","amountCents","status","ledgerEntryId") VALUES ('migration_statement','migration_bank','legacy-match',CURRENT_TIMESTAMP,'Conciliado anterior','CREDIT',321,'MATCHED','migration_ledger')`;
     });
     return;
   }
@@ -32,6 +36,7 @@ async function main(){
     const transfer=await db.eventTransfer.findUniqueOrThrow({where:{id:"migration_transfer"}});
     assert.equal(reserve.amountCents,12345n);assert.equal(reserve.category,"OUTRAS_DESPESAS");assert.ok(reserve.updatedAt instanceof Date);
     assert.equal(transfer.amountCents,2345n);assert.equal(transfer.status,"REQUESTED");
+    const allocated=await db.reconciliationAllocation.findUniqueOrThrow({where:{requestKey:"legacy:migration_statement"}});assert.equal(allocated.amountCents,321n);assert.equal(allocated.ledgerEntryId,"migration_ledger");
     return;
   }
   const {prisma}=await import("../src/lib/prisma");
@@ -71,6 +76,7 @@ async function main(){
     steps.push("transferência não contorna permissão ou segregação");
     const queueFinance=await db.user.create({data:{name:"Financeiro fila PG",email:"queue-finance@pg.invalid",passwordHash:"no-login",role:"FINANCE_DISK"}});
     steps.push(await queueRegressions(db,admin.id,queueFinance.id));
+    await financialCloseRegressions(db,admin.id,queueFinance.id);steps.push("conciliação parcial, divergências, fechamento e bloqueio de competência aprovados");
     const stamp=new Date().toISOString();
     await db.financeSetting.create({data:{key:`retentions:${target.id}`,changedById:admin.id,value:JSON.stringify([{id:"legacy-pg-reserve",eventId:target.id,category:"ECAD",description:"Retenção legada",beneficiary:"ECAD",documentRef:"PG-1",ownerName:"Teste",dueDate:null,amountCents:"100",status:"ACTIVE",createdAt:stamp,updatedAt:stamp}])}});
     assert.equal((await migrateLegacyFinance(db)).reserves,1);

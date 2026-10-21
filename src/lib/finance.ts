@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { parseCents } from "@/lib/money";
 import { isoDate, titleInput } from "@/lib/validation";
 import type { SessionUser } from "@/lib/auth";
+import { writableBankDates } from "@/lib/financial-close";
 
 export const titleInclude = { producer: { select: { name: true } }, event: { select: { name: true } }, bankAccount: { select: { name: true } } } as const;
 
@@ -42,6 +43,7 @@ export async function settleTitle(id: string, bankAccountId: string, user: Sessi
     const title = await tx.financialTitle.findUnique({ where: { id } });
     if (!title) throw new Error("REGRA:Título não encontrado.");
     if (title.status !== TitleStatus.OPEN) throw new Error("REGRA:Título já liquidado ou cancelado.");
+    await writableBankDates(tx,bankAccountId,[new Date()]);
     const account = await tx.bankAccount.findUnique({ where: { id: bankAccountId }, select: { id: true, active: true } });
     if (!account || !account.active) throw new Error("REGRA:Conta indisponível.");
 

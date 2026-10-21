@@ -93,4 +93,5 @@ E:\MONEY
 
 - [Pacote 2: segurança da conta](docs/deploy/PACOTE2-SEGURANCA.md).
 - [Pacote 3: integrações resilientes](docs/deploy/PACOTE3-INTEGRACOES.md).
+- [Pacote 4: conciliação e fechamento financeiro](docs/deploy/PACOTE4-CONCILIACAO-FECHAMENTO.md).
 - [Situação dos próximos pacotes](docs/deploy/PROXIMOS-PACOTES.md).

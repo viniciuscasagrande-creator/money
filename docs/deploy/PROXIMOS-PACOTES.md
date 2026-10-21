@@ -7,7 +7,7 @@ Atualizado em 21/10/2026. A ordem abaixo representa entregas incrementais; uma l
 | 1 — PostgreSQL e CI | Código entregue; ativação GitHub/Vercel pendente | Configurar ambientes e secrets e executar pipeline no GitHub |
 | 2 — Segurança e acesso | Troca de senha e revogação implementadas localmente | Validar em preview; depois implementar recuperação por e-mail com serviço configurado |
 | 3 — Integrações resilientes | Fila persistente, worker, painel e reprocessamento implementados localmente | Validar em preview e configurar execução periódica do worker |
-| 4 — Conciliação e fechamento | Planejado; conciliação e fechamento contábil básicos já existem | Definir e testar conciliação parcial, divergências e período financeiro, preservando movimentos já liquidados |
+| 4 — Conciliação e fechamento | Alocações parciais, divergências e fechamento mensal por conta implementados localmente | Validar em preview com extratos representativos e conferir competências antes da produção |
 | 5 — Contabilidade e demonstrativos | Planejado; eventos contábeis e demonstrativos já existem | Cobrir operações com regras contábeis revisadas e permitir rastrear lançamentos até suas origens |
 | 6 — Backup operacional | Planejado; exportação e restauração já existem | Destino externo configurado, retenção, verificação de integridade e restauração periódica em ambiente isolado |
 | 7 — Monitoramento e auditoria | Planejado; auditoria operacional já existe | Identificadores de correlação, logs sem segredos e alertas de falha com canal configurado |
