@@ -3,6 +3,8 @@ import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_CHART_OF_ACCOUNTS } from "@/lib/accounting-core";
+import {Prisma} from "@prisma/client";
+import {apiCatch} from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -52,13 +54,14 @@ export async function POST(req: NextRequest) {
   try {
     const body = z.union([account, period, rule, seedChart, taxConfig]).parse(await req.json());
     const result = await prisma.$transaction(async (tx) => {
+      const createSetup=async()=>{
       if (body.kind === "seed_chart") {
         const existingRows = await tx.accountingAccount.findMany({ select: { code: true } });
         const existingCodes = new Set(existingRows.map((r) => r.code));
         const toCreate = DEFAULT_CHART_OF_ACCOUNTS.filter((acc) => !existingCodes.has(acc.code)).map((acc) => ({
           code: acc.code,
           name: acc.name,
-          type: acc.type === "DEDUCTION" ? "EXPENSE" : acc.type,
+          type: acc.type,
           postable: acc.postable
         }));
         if (toCreate.length > 0) {
@@ -85,12 +88,12 @@ export async function POST(req: NextRequest) {
         return tx.accountingPeriod.create({ data: { name: body.name, startAt, endAt } });
       }
       if (body.debitAccountId === body.creditAccountId)
-        throw new Error("Contas de débito e crédito devem ser distintas.");
-      if (body.validUntil && body.validUntil <= body.validFrom) throw new Error("Vigência inválida.");
+        throw new Error("REGRA:Contas de débito e crédito devem ser distintas.");
+      if (body.validUntil && new Date(body.validUntil) <= new Date(body.validFrom)) throw new Error("REGRA:Vigência inválida.");
       const found = await tx.accountingAccount.findMany({
         where: { id: { in: [body.debitAccountId, body.creditAccountId] }, active: true, postable: true }
       });
-      if (found.length !== 2) throw new Error("Contas não encontradas ou inativas.");
+      if (found.length !== 2) throw new Error("REGRA:Contas não encontradas ou inativas.");
       return tx.accountingRule.create({
         data: {
           eventType: body.eventType,
@@ -102,8 +105,9 @@ export async function POST(req: NextRequest) {
           active: false
         }
       });
-    });
-    await prisma.auditLog.create({
+      };
+      const result=await createSetup();
+    await tx.auditLog.create({
       data: {
         actorId: user.id,
         action: "ACCOUNTING_SETUP",
@@ -112,8 +116,10 @@ export async function POST(req: NextRequest) {
         summary: "Cadastro de estrutura contábil; não movimenta recursos."
       }
     });
+      return result;
+    },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
     return NextResponse.json(result, { status: 201 });
   } catch (e) {
-    return fail(e instanceof Error ? e.message : "Erro ao cadastrar.", 400);
+    const x=apiCatch(e);return fail(x.message,x.status);
   }
 }

@@ -13,6 +13,7 @@ import bcrypt from "bcryptjs";
 import {changeAccountSecurity,createVerifiedSession,sessionTokenHash,SecurityError} from "../src/lib/account-security";
 import {queueRegressions} from "./helpers/integration-queue-scenarios";
 import {financialCloseRegressions} from "./helpers/financial-close-scenarios";
+import {accountingRegressions} from "./helpers/accounting-scenarios";
 
 test("regressões financeiras com persistência, idempotência e restauração isolada",async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"money-regression-"));
@@ -27,6 +28,7 @@ test("regressões financeiras com persistência, idempotência e restauração i
   const {importTicketingReceivable}=await import("../src/lib/ticketing-import");
   const {loadEventRetentions,loadEventTransfers,defaultLockPolicy,loadEventLockPolicy,defaultProducerFinancialPolicy}=await import("../src/lib/payout-locks");
   let closeFixture:Awaited<ReturnType<typeof financialCloseRegressions>>;
+  let accountingFixture:Awaited<ReturnType<typeof accountingRegressions>>;
   try {
     const producer=await db.producer.create({data:{name:"Produtor regressão"}});
     const admin=await db.user.create({data:{name:"Admin teste",email:"admin@regression.invalid",passwordHash:"not-a-login",role:"ADMIN"}});
@@ -176,6 +178,9 @@ test("regressões financeiras com persistência, idempotência e restauração i
       await db.user.update({where:{id:person.id},data:{active:false}});
       await assert.rejects(createVerifiedSession(db,person.id,passwordHash,sessionTokenHash("inactive"),new Date(Date.now()+600000)));
     });
+    await t.test("contabilidade: prévia, origem, natureza de contas, saldos acumulados e fechamento consistente",async()=>{
+      accountingFixture=await accountingRegressions(db,admin.id,finance.id);
+    });
     await t.test("HTTP: ambas as APIs aplicam os controles e demonstrativos respeitam competência",async()=>{
       const receivable=await db.accountingAccount.create({data:{code:"1.1",name:"Recebível teste",type:"ASSET"}});
       const revenue=await db.accountingAccount.create({data:{code:"3.1",name:"Receita teste",type:"REVENUE"}});
@@ -196,6 +201,10 @@ test("regressões financeiras com persistência, idempotência e restauração i
       try{
         let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base+"/login")).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}
         assert.ok(ready,logs);
+        assert.equal((await api(`/api/contabilidade/trilha?journalId=${accountingFixture.journalId}`,"GET",undefined,owner)).status,403);
+        const trace=await api(`/api/contabilidade/trilha?journalId=${accountingFixture.journalId}`,"GET",undefined,finance);assert.equal(trace.status,200);assert.equal(trace.data.legacySnapshotUnavailable,false);assert.equal(trace.data.origin.kind,"MANUAL");assert.equal(trace.data.snapshot.rule.version,1);
+        assert.equal((await api("/api/contabilidade?visao=razao&periodo=2002-01&page=invalid")).status,400);
+        assert.equal((await api("/api/contabilidade/eventos","POST",{externalKey:"sale:forged-identity",type:"TICKET_SALE_CAPTURED",source:"FINANCE",sourceId:"forged-identity",amountCents:"100",occurredAt:"2002-02-10T12:00:00Z"})).status,400);
         assert.equal((await api(`/api/controle/fechamento?bankAccountId=${closeFixture.bankId}&month=${closeFixture.month}`,"GET",undefined,owner)).status,403);
         const closed=await api(`/api/controle/fechamento?bankAccountId=${closeFixture.bankId}&month=${closeFixture.month}`);assert.equal(closed.status,200);assert.equal(closed.data.closed.month,closeFixture.month);
         assert.equal((await api("/api/controle/fechamento","POST",{action:"CLOSE",bankAccountId:closeFixture.bankId,month:closeFixture.month,declaredBalanceCents:"10000"},finance)).status,403);

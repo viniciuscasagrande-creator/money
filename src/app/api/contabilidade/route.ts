@@ -1,184 +1,29 @@
-import { NextRequest, NextResponse } from "next/server";
-import { authorize, fail } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { DEFAULT_TAX_PARAMETERS_BPS } from "@/lib/accounting-core";
-
-export const runtime = "nodejs";
-
-export async function GET(req: NextRequest) {
-  const { error } = await authorize(req, ["ADMIN", "FINANCE_DISK"]);
-  if (error) return error;
-  const view = req.nextUrl.searchParams.get("visao") || "resumo";
-
-  const periodName = req.nextUrl.searchParams.get("periodo");
-  const periodViews = ["razao", "balancete", "dre", "passivos"];
-  if (periodViews.includes(view) && (!periodName || !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodName))) return fail("Informe período AAAA-MM.");
-  const periodFilter = { journal: { period: { name: periodName! } } };
-  if (view === "contas") {
-    const rows = await prisma.accountingAccount.findMany({ orderBy: { code: "asc" }, take: 500 });
-    return NextResponse.json({ items: rows });
+import {NextRequest,NextResponse} from "next/server";
+import {authorize,fail} from "@/lib/auth";
+import {prisma} from "@/lib/prisma";
+import {DEFAULT_TAX_PARAMETERS_BPS} from "@/lib/accounting-core";
+import {accountingReport} from "@/lib/accounting-reports";
+import {apiCatch} from "@/lib/validation";
+export const runtime="nodejs";
+export async function GET(req:NextRequest){
+ const {error,user}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
+ const view=req.nextUrl.searchParams.get("visao")||"resumo",month=req.nextUrl.searchParams.get("periodo");
+ if(["razao","balancete","dre","passivos"].includes(view)&&(!month||!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)))return fail("Informe período AAAA-MM.");
+ try{
+  if(view==="balancete"||view==="dre"||view==="passivos")return NextResponse.json(await accountingReport(prisma,view,month!),{headers:{"Cache-Control":"no-store"}});
+  if(view==="contas")return NextResponse.json({items:await prisma.accountingAccount.findMany({orderBy:{code:"asc"},take:500})});
+  if(view==="periodos")return NextResponse.json({canManage:user.role==="ADMIN",items:await prisma.accountingPeriod.findMany({orderBy:{name:"desc"},take:100})});
+  if(view==="regras")return NextResponse.json({canManage:user.role==="ADMIN",items:await prisma.accountingRule.findMany({orderBy:[{eventType:"asc"},{version:"desc"}],take:200})});
+  if(view==="eventos"){const items=await prisma.accountingBusinessEvent.findMany({orderBy:{createdAt:"desc"},take:100});return NextResponse.json({items:items.map(r=>({...r,amountCents:r.amountCents.toString()}))});}
+  if(view==="razao"){
+   const page=Number(req.nextUrl.searchParams.get("page")??1);if(!Number.isInteger(page)||page<1||page>100000)return fail("Página inválida.");
+   const where={period:{name:month!}};
+   const [items,total]=await prisma.$transaction([prisma.accountingJournal.findMany({where,orderBy:[{occurredAt:"desc"},{id:"desc"}],skip:(page-1)*100,take:100,include:{postings:{include:{account:{select:{code:true,name:true}}}},businessEvent:{select:{externalKey:true,source:true,sourceId:true,type:true}}}}),prisma.accountingJournal.count({where})]);
+   return NextResponse.json({items:items.map(({ruleSnapshotJson:_,...r})=>({...r,postings:r.postings.map(p=>({...p,debitCents:p.debitCents.toString(),creditCents:p.creditCents.toString()}))})),page,pageSize:100,total});
   }
-  if (view === "periodos") {
-    const rows = await prisma.accountingPeriod.findMany({ orderBy: { name: "desc" }, take: 100 });
-    return NextResponse.json({ items: rows });
-  }
-  if (view === "regras") {
-    const rows = await prisma.accountingRule.findMany({
-      orderBy: [{ eventType: "asc" }, { version: "desc" }],
-      take: 200
-    });
-    return NextResponse.json({ items: rows });
-  }
-  if (view === "eventos") {
-    const rows = await prisma.accountingBusinessEvent.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
-    return NextResponse.json({ items: rows.map((r) => ({ ...r, amountCents: r.amountCents.toString() })) });
-  }
-  if (view === "razao") {
-    const rows = await prisma.accountingJournal.findMany({
-      where: { period: { name: periodName! } },
-      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
-      take: 10000,
-      include: { postings: { include: { account: { select: { code: true, name: true } } } } }
-    });
-    if(rows.length===10000)return fail("Limite de lançamentos alcançado. Exporte por lotes.",413);
-    return NextResponse.json({
-      items: rows.map((r) => ({
-        ...r,
-        postings: r.postings.map((x) => ({
-          ...x,
-          debitCents: x.debitCents.toString(),
-          creditCents: x.creditCents.toString()
-        }))
-      }))
-    });
-  }
-  if (view === "balancete") {
-    const period = req.nextUrl.searchParams.get("periodo");
-    if (!period || !/^[0-9]{4}-[0-9]{2}$/.test(period)) return fail("Informe periodo AAAA-MM.");
-    const rows = await prisma.accountingPosting.findMany({
-      where: { journal: { period: { name: period } } },
-      include: { account: { select: { code: true, name: true, type: true } } },
-      take: 10000
-    });
-    if (rows.length === 10000) return fail("Limite de partidas alcançado: filtre ou exporte por lotes.", 413);
-    const totals = new Map<string, { code: string; name: string; type: string; debit: bigint; credit: bigint }>();
-    for (const r of rows) {
-      let x = totals.get(r.accountId);
-      if (!x) {
-        x = { ...r.account, debit: 0n, credit: 0n };
-        totals.set(r.accountId, x);
-      }
-      x.debit += r.debitCents;
-      x.credit += r.creditCents;
-    }
-    const totalDebits = [...totals.values()].reduce((a, b) => a + b.debit, 0n);
-    const totalCredits = [...totals.values()].reduce((a, b) => a + b.credit, 0n);
-    return NextResponse.json({
-      items: [...totals.values()]
-        .sort((a, b) => a.code.localeCompare(b.code))
-        .map((x) => ({
-          ...x,
-          debitCents: x.debit.toString(),
-          creditCents: x.credit.toString(),
-          saldoDevedorCents: (x.debit - x.credit).toString(),
-          debit: undefined,
-          credit: undefined
-        })),
-      totalDebitsCents: totalDebits.toString(),
-      totalCreditsCents: totalCredits.toString(),
-      balanced: totalDebits === totalCredits
-    });
-  }
-  if (view === "dre") {
-    const rows = await prisma.accountingPosting.findMany({
-      where: periodFilter,
-      include: { account: { select: { code: true, name: true, type: true } } },
-      take: 10000
-    });
-    if (rows.length === 10000) return fail("Limite de partidas alcançado. Use um período menor ou exportação por lotes.", 413);
-    let receitaBruta = 0n;
-    let deducoes = 0n;
-    let despesas = 0n;
-    for (const r of rows) {
-      if (r.account.code.startsWith("3.1") || r.account.code.startsWith("3.3") || r.account.type === "REVENUE") {
-        if (r.account.code.startsWith("3.2") || r.account.type === "DEDUCTION") {
-          deducoes += r.debitCents - r.creditCents;
-        } else {
-          receitaBruta += r.creditCents - r.debitCents;
-        }
-      } else if (r.account.code.startsWith("3.2") || r.account.type === "DEDUCTION") {
-        deducoes += r.debitCents - r.creditCents;
-      } else if (r.account.code.startsWith("4.") || r.account.type === "EXPENSE") {
-        despesas += r.debitCents - r.creditCents;
-      }
-    }
-    const receitaLiquida = receitaBruta - deducoes;
-    const resultado = receitaLiquida - despesas;
-    return NextResponse.json({
-      items: [
-        { linha: "1. Receita Operacional Bruta (Taxas, Comissões, Spread)", valorCents: receitaBruta.toString() },
-        { linha: "2. (-) Deduções e Tributos sobre Receita (ISS, PIS, COFINS, Reembolsos)", valorCents: (-deducoes).toString() },
-        { linha: "3. (=) Receita Operacional Líquida SOUL", valorCents: receitaLiquida.toString() },
-        { linha: "4. (-) Despesas Operacionais e Financeiras (MDR, Antecipação, Quebra)", valorCents: (-despesas).toString() },
-        { linha: "5. (=) Resultado Contábil Líquido do Período", valorCents: resultado.toString() }
-      ],
-      receitaBrutaCents: receitaBruta.toString(),
-      deducoesCents: deducoes.toString(),
-      receitaLiquidaCents: receitaLiquida.toString(),
-      despesasCents: despesas.toString(),
-      resultadoCents: resultado.toString()
-    });
-  }
-  if (view === "passivos") {
-    const rows = await prisma.accountingPosting.findMany({
-      where: { ...periodFilter, account: { type: "LIABILITY" } },
-      include: { account: { select: { code: true, name: true } } },
-      take: 10000
-    });
-    if (rows.length === 10000) return fail("Limite de partidas alcançado. Use exportação por lotes.", 413);
-    const byEvent = new Map<string, { eventId: string; accountCode: string; accountName: string; credit: bigint; debit: bigint }>();
-    for (const r of rows) {
-      const key = `${r.eventId || "CONSOLIDADO"}::${r.account.code}`;
-      let cur = byEvent.get(key);
-      if (!cur) {
-        cur = {
-          eventId: r.eventId || "CONSOLIDADO",
-          accountCode: r.account.code,
-          accountName: r.account.name,
-          credit: 0n,
-          debit: 0n
-        };
-        byEvent.set(key, cur);
-      }
-      cur.credit += r.creditCents;
-      cur.debit += r.debitCents;
-    }
-    return NextResponse.json({
-      items: [...byEvent.values()].map((x) => ({
-        eventId: x.eventId,
-        accountCode: x.accountCode,
-        accountName: x.accountName,
-        creditCents: x.credit.toString(),
-        debitCents: x.debit.toString(),
-        saldoCredorCents: (x.credit - x.debit).toString()
-      }))
-    });
-  }
-
-  const [accounts, periods, events, journals, taxSetting] = await Promise.all([
-    prisma.accountingAccount.count(),
-    prisma.accountingPeriod.count(),
-    prisma.accountingBusinessEvent.count(),
-    prisma.accountingJournal.count(),
-    prisma.financeSetting.findUnique({ where: { key: "accounting_tax_bps" } })
-  ]);
-  let taxRatesBps = DEFAULT_TAX_PARAMETERS_BPS;
-  if (taxSetting?.value) {
-    try {
-      taxRatesBps = JSON.parse(taxSetting.value);
-    } catch {
-      taxRatesBps = DEFAULT_TAX_PARAMETERS_BPS;
-    }
-  }
-  return NextResponse.json({ accounts, periods, events, journals, taxRatesBps });
+  if(view!=="resumo")return fail("Visão contábil inválida.");
+  const [accounts,periods,events,journals,taxSetting]=await Promise.all([prisma.accountingAccount.count(),prisma.accountingPeriod.count(),prisma.accountingBusinessEvent.count(),prisma.accountingJournal.count(),prisma.financeSetting.findUnique({where:{key:"accounting_tax_bps"}})]);
+  let taxRatesBps=DEFAULT_TAX_PARAMETERS_BPS;if(taxSetting?.value)try{taxRatesBps=JSON.parse(taxSetting.value);}catch{}
+  return NextResponse.json({accounts,periods,events,journals,taxRatesBps,taxConfigured:!!taxSetting});
+ }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }

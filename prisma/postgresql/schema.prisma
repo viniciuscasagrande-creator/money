@@ -562,6 +562,9 @@ model AccountingJournal {
   periodId String
   period AccountingPeriod @relation(fields:[periodId],references:[id])
   description String
+  ruleId String?
+  ruleSnapshotJson String?
+  postedById String?
   ruleVersion Int
   occurredAt DateTime
   reversalOfId String?

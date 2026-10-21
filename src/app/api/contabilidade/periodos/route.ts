@@ -1,6 +1,11 @@
-import {Prisma} from "@prisma/client";
-import {NextRequest,NextResponse} from "next/server";import {z} from "zod";import {authorize,fail} from "@/lib/auth";import {prisma} from "@/lib/prisma";
-export async function PATCH(req:NextRequest){const {error,user}=await authorize(req,["ADMIN"]);if(error||!user)return error!;
- try{const x=z.object({periodId:z.string().min(1),status:z.literal("CLOSED")}).strict().parse(await req.json());
- const result=await prisma.$transaction(async tx=>{const period=await tx.accountingPeriod.findUnique({where:{id:x.periodId}});if(!period||period.status!=="OPEN")throw new Error("Período inexistente ou já fechado.");const locked=await tx.accountingPeriod.updateMany({where:{id:period.id,status:"OPEN"},data:{status:"OPEN"}});if(locked.count!==1)throw new Error("Fechamento concorrente.");const pending=await tx.accountingBusinessEvent.count({where:{occurredAt:{gte:period.startAt,lt:period.endAt},status:"PENDING"}});if(pending)throw new Error("Há eventos de negócio não processados neste período.");const done=await tx.accountingPeriod.update({where:{id:period.id},data:{status:"CLOSED"}});await tx.auditLog.create({data:{actorId:user.id,action:"ACCOUNTING_PERIOD_CLOSED",entity:"AccountingPeriod",entityId:period.id,summary:`Fechamento do período ${period.name}.`}});return done;},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});return NextResponse.json({id:result.id,status:result.status});
- }catch(e){return fail(e instanceof Error?e.message:"Erro ao fechar.");}}
+import {NextRequest,NextResponse} from "next/server";
+import {z} from "zod";
+import {authorize,fail} from "@/lib/auth";
+import {prisma} from "@/lib/prisma";
+import {closeAccountingPeriod} from "@/lib/accounting-close";
+import {apiCatch} from "@/lib/validation";
+export async function PATCH(req:NextRequest){
+ const {error,user}=await authorize(req,["ADMIN"]);if(error||!user)return error!;
+ try{const input=z.object({periodId:z.string().min(1),status:z.literal("CLOSED")}).strict().parse(await req.json());return NextResponse.json(await closeAccountingPeriod(prisma,input.periodId,user.id));}
+ catch(e){if(e instanceof Error&&e.message.startsWith("REGRA:"))return fail(e.message.slice(6));const x=apiCatch(e);return fail(x.message,x.status);}
+}

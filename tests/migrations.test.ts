@@ -17,7 +17,8 @@ test("migração versionada preserva reservas e transferências existentes",asyn
     INSERT INTO EventTransfer(id,producerId,originEventId,destinationEventId,amountCents,reason,requestedById)VALUES('t','p','a','b',45,'Transferência existente','actor');
     INSERT INTO BankAccount(id,name,institution,balanceCents)VALUES('migration_bank','Banco anterior','Teste',321);
     INSERT INTO LedgerEntry(id,direction,origin,amountCents,description,bankAccountId)VALUES('migration_ledger','CREDIT','RECEIVABLE',321,'Conciliado anterior','migration_bank');
-    INSERT INTO BankStatementLine(id,bankAccountId,externalId,postedAt,description,direction,amountCents,status,ledgerEntryId)VALUES('migration_statement','migration_bank','legacy-match',CURRENT_TIMESTAMP,'Conciliado anterior','CREDIT',321,'MATCHED','migration_ledger');`);
+    INSERT INTO BankStatementLine(id,bankAccountId,externalId,postedAt,description,direction,amountCents,status,ledgerEntryId)VALUES('migration_statement','migration_bank','legacy-match',CURRENT_TIMESTAMP,'Conciliado anterior','CREDIT',321,'MATCHED','migration_ledger');
+    INSERT INTO AccountingAccount(id,code,name,type)VALUES('migration_deduction','3.2.01','Impostos sobre receita e cancelamentos','EXPENSE');`);
   sqlite.close();
   const url=`file:${file.replaceAll("\\","/")}`,env={...process.env,DATABASE_URL:url};
   const cli=(args:string[])=>execFileSync(process.execPath,["node_modules/prisma/build/index.js",...args],{env,stdio:"pipe"});
@@ -29,6 +30,7 @@ test("migração versionada preserva reservas e transferências existentes",asyn
     assert.equal(transfer.amountCents,45n);assert.equal(transfer.status,"REQUESTED");assert.equal(transfer.producerAcceptedById,null);
     const allocated=await db.reconciliationAllocation.findUniqueOrThrow({where:{requestKey:"legacy:migration_statement"}});
     assert.equal(allocated.amountCents,321n);assert.equal(allocated.ledgerEntryId,"migration_ledger");assert.equal(allocated.actorId,null);
+    assert.equal((await db.accountingAccount.findUniqueOrThrow({where:{id:"migration_deduction"}})).type,"DEDUCTION");
     assert.equal(await db.integrationDelivery.count(),0);assert.equal(await db.integrationJob.count(),0);cli(["migrate","status"]);
   }finally{await db.$disconnect();fs.rmSync(folder,{recursive:true,force:true});}
 });

@@ -94,4 +94,5 @@ E:\MONEY
 - [Pacote 2: segurança da conta](docs/deploy/PACOTE2-SEGURANCA.md).
 - [Pacote 3: integrações resilientes](docs/deploy/PACOTE3-INTEGRACOES.md).
 - [Pacote 4: conciliação e fechamento financeiro](docs/deploy/PACOTE4-CONCILIACAO-FECHAMENTO.md).
+- [Pacote 5: contabilidade e demonstrativos](docs/deploy/PACOTE5-CONTABILIDADE-DEMONSTRATIVOS.md).
 - [Situação dos próximos pacotes](docs/deploy/PROXIMOS-PACOTES.md).

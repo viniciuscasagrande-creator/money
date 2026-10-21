@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/financeiro/shared";
-import { parseBRLToCents } from "@/lib/money";
+import { parseBRLToCents,fmtBRL } from "@/lib/money";
+import { AccountingWorkflow,AccountingTrail,AccountingRulesEditor } from "@/components/financeiro/accounting-workflow";
 
 type Item = Record<string, unknown>;
 
@@ -35,14 +36,16 @@ const TYPE_LABELS: Record<string, string> = {
 function fmtBRLCents(v: unknown): string {
   if (v === null || v === undefined) return "—";
   try {
-    const n = Number(BigInt(String(v))) / 100;
-    return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    return fmtBRL(String(v));
   } catch {
     return String(v);
   }
 }
 
 export function AccountingBooks() {
+  const [trailId,setTrailId]=useState<string|null>(null);
+  const [journalPage,setJournalPage]=useState(1);
+  const [closeTarget,setCloseTarget]=useState<Item|null>(null),[closeReviewed,setCloseReviewed]=useState(false);
   const [view, setView] = useState("contas");
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const [data, setData] = useState<Item[] | null>(null);
@@ -56,7 +59,7 @@ export function AccountingBooks() {
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accCode, setAccCode] = useState("");
   const [accName, setAccName] = useState("");
-  const [accType, setAccType] = useState<"ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE">("ASSET");
+  const [accType, setAccType] = useState<"ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "DEDUCTION" | "EXPENSE">("ASSET");
   const [accPostable, setAccPostable] = useState(true);
 
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
@@ -73,36 +76,19 @@ export function AccountingBooks() {
   const [pisBps, setPisBps] = useState("65");
   const [cofinsBps, setCofinsBps] = useState("300");
 
-  async function load(id = view) {
+  async function load(id = view,page=1) {
+    setJournalPage(page);
     setView(id);
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/contabilidade?visao=${id}&periodo=${period}`, { cache: "no-store" });
+      const res = await fetch(`/api/contabilidade?visao=${id}&periodo=${period}&page=${page}`, { cache: "no-store" });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || "Não foi possível consultar.");
       const items = Array.isArray(out.items) ? out.items : [];
       setData(items);
       setSummary(out);
 
-      // Se abrir o Plano de Contas e ainda estiver vazio no banco, inicializa automaticamente as 28 contas padrão
-      if (id === "contas" && items.length === 0) {
-        const seedRes = await fetch("/api/contabilidade/cadastros", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: "seed_chart" }),
-        });
-        if (seedRes.ok) {
-          const refreshed = await fetch(`/api/contabilidade?visao=contas&periodo=${period}`, {
-            cache: "no-store",
-          });
-          if (refreshed.ok) {
-            const refreshedJson = await refreshed.json();
-            setData(Array.isArray(refreshedJson.items) ? refreshedJson.items : []);
-            setSummary(refreshedJson);
-          }
-        }
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha na consulta");
     } finally {
@@ -143,6 +129,13 @@ export function AccountingBooks() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function closePeriod(){
+    if(!closeTarget||!closeReviewed)return;setLoading(true);setError("");
+    try{const response=await fetch("/api/contabilidade/periodos",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({periodId:closeTarget.id,status:"CLOSED"})});const result=await response.json();if(!response.ok)throw new Error(result.error||"Falha no fechamento.");setCloseTarget(null);setCloseReviewed(false);setNotice("Competência contábil fechada após as conferências do servidor.");await load("periodos");}
+    catch(e){setError(e instanceof Error?e.message:"Falha no fechamento.");setCloseTarget(null);}
+    finally{setLoading(false);}
   }
 
   async function handleCreateAccount(e: FormEvent) {
@@ -275,9 +268,9 @@ export function AccountingBooks() {
     regras: ["eventType", "version", "debitAccountId", "creditAccountId", "active"],
     eventos: ["type", "source", "externalKey", "amountCents", "status"],
     razao: ["occurredAt", "description", "ruleVersion", "businessEventId"],
-    balancete: ["code", "name", "type", "debitCents", "creditCents", "saldoDevedorCents"],
+    balancete: ["code", "name", "type", "saldoInicialDevedorCents", "debitCents", "creditCents", "saldoDevedorCents"],
     dre: ["linha", "valorCents"],
-    passivos: ["eventId", "accountCode", "accountName", "creditCents", "debitCents", "saldoCredorCents"],
+    passivos: ["eventId", "producerId", "accountCode", "accountName", "saldoInicialCredorCents", "creditCents", "debitCents", "saldoCredorCents"],
   };
 
   const accountsList = view === "contas" && Array.isArray(data) ? data : [];
@@ -520,14 +513,14 @@ export function AccountingBooks() {
               <div className="flex items-center gap-2">
                 <Layers3 size={16} className="text-[#e3574f]" />
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Canais Contabilizados
+                  Fontes de fatos aceitas
                 </p>
               </div>
               <p className="mt-1 text-base font-semibold text-slate-900">
-                Online · POS PagSeguro · Bilheteria
+                Online · POS · Bilheteria · Financeiro
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Modelo Agente: ingresso líquido em passivo do produtor (2.1.01) e taxa/comissão em receita diferida (2.1.02) até a realização do evento.
+                Consulte os fatos integrados e revise a distribuição entre ativos, obrigações e receitas antes de contabilizar.
               </p>
             </div>
             <div className="rounded-2xl border bg-white p-5">
@@ -555,7 +548,7 @@ export function AccountingBooks() {
                 ISS · PIS · COFINS Configuráveis
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Parâmetros ativos (bps): {format(summary.taxRatesBps)}. Provisão em 2.1.03 no reconhecimento de receita e reversão automática em reembolsos pós-evento.
+                Parâmetros {summary.taxConfigured?"cadastrados":"de referência, ainda não configurados"} (bps): {format(summary.taxRatesBps)}. A provisão tributária depende de regras e partidas revisadas; não é calculada automaticamente nesta tela.
               </p>
             </div>
           </div>
@@ -566,8 +559,8 @@ export function AccountingBooks() {
         <div className="rounded-xl border bg-white p-4 text-sm font-medium">
           Total Débitos: {fmtBRLCents(summary.totalDebitsCents)} · Total Créditos:{" "}
           {fmtBRLCents(summary.totalCreditsCents)} ·{" "}
-          <span className={summary.balanced ? "text-emerald-700" : "text-red-700"}>
-            {summary.balanced ? "Balancete Fechado (D = C)" : "Desbalanceado"}
+          <span className={summary.balanced&&summary.closingBalanced ? "text-emerald-700" : "text-red-700"}>
+            {summary.balanced&&summary.closingBalanced ? "Saldos e movimentos conferidos (D = C)" : "Revisar diferenças"}
           </span>
         </div>
       )}
@@ -582,6 +575,8 @@ export function AccountingBooks() {
                     {c}
                   </th>
                 ))}
+                {view==="razao"&&<th className="px-3 py-3">Origem e partidas</th>}
+                {view==="periodos"&&<th className="px-3 py-3">Fechamento</th>}
               </tr>
             </thead>
             <tbody>
@@ -592,6 +587,8 @@ export function AccountingBooks() {
                       {format(row[c], c)}
                     </td>
                   ))}
+                  {view==="razao"&&<td className="px-3 py-3"><Button variant="outline" size="sm" onClick={()=>setTrailId(String(row.id))}>Consultar</Button></td>}
+                  {view==="periodos"&&<td className="px-3 py-3">{summary?.canManage&&row.status==="OPEN"?<Button variant="outline" size="sm" onClick={()=>{setCloseTarget(row);setCloseReviewed(false);}}>Conferir fechamento</Button>:"—"}</td>}
                 </tr>
               ))}
             </tbody>
@@ -599,6 +596,12 @@ export function AccountingBooks() {
           {data.length === 0 && <p className="p-5 text-slate-500">Sem registros para esta visão no período selecionado.</p>}
         </div>
       )}
+
+      {view==="razao"&&<div className="flex items-center gap-3"><Button variant="outline" disabled={loading||journalPage===1} onClick={()=>void load("razao",journalPage-1)}>Anterior</Button><span>Página {journalPage}</span><Button variant="outline" disabled={loading||journalPage*100>=Number(summary?.total??0)} onClick={()=>void load("razao",journalPage+1)}>Próxima</Button></div>}
+      {view==="eventos"&&<AccountingWorkflow onPosted={()=>void load("razao")}/>}
+      {view==="regras"&&<AccountingRulesEditor onChanged={()=>void load("regras")}/>}
+      {trailId&&<AccountingTrail key={trailId} id={trailId} onClose={()=>setTrailId(null)}/>}
+      <Dialog open={closeTarget!==null} onOpenChange={open=>{if(!open)setCloseTarget(null);}}><DialogContent><DialogTitle>Fechar competência {String(closeTarget?.name??"")}</DialogTitle><DialogDescription>O servidor confere pendências e integridade dos lançamentos. Fatos novos desta competência serão bloqueados após o fechamento. A reabertura não está disponível.</DialogDescription><label className="my-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={closeReviewed} onChange={e=>setCloseReviewed(e.target.checked)}/>Conferi os fatos, partidas e demonstrativos desta competência.</label><Button disabled={loading||!closeReviewed} onClick={()=>void closePeriod()}>Confirmar fechamento contábil</Button></DialogContent></Dialog>
 
       {/* Modal: Nova Conta Contábil */}
       <Dialog open={accountModalOpen} onOpenChange={setAccountModalOpen}>
@@ -636,6 +639,7 @@ export function AccountingBooks() {
                 <option value="LIABILITY">2 · Passivo (Obrigações Produtores, Retenções, Tributos)</option>
                 <option value="EQUITY">2.9 · Patrimônio Líquido</option>
                 <option value="REVENUE">3 · Receita Operacional</option>
+                <option value="DEDUCTION">3.2 · Deduções da receita</option>
                 <option value="EXPENSE">4 · Custo / Despesa Operacional</option>
               </select>
             </label>

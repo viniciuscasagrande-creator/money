@@ -534,7 +534,14 @@ try {
       const rule=await create('/api/contabilidade/cadastros',{kind:'rule',eventType:item.type,version:1,debitAccountId:accReceivable.id,creditAccountId:accProducerPayable.id,validFrom:'2026-01-01T00:00:00.000Z'});
       expectStatus(await req('/api/contabilidade/regras','PATCH',{ruleId:rule.id,active:true},admin),200,'Ativar regra de teste');rulesByType.set(item.type,rule.id);
     }
-    expectStatus(await req('/api/contabilidade/processar','POST',{businessEventId:item.id,ruleId:rulesByType.get(item.type)},admin),200,'Processar fato automático');
+    // Technical mapping for the isolated fixture: production mappings require accounting review.
+    const payload=JSON.parse(item.payloadJson||'{}');
+    const reviewed={businessEventId:item.id,ruleId:rulesByType.get(item.type),customPostings:[
+      {accountId:item.type==='INTERNAL_EVENT_TRANSFER_EXECUTED'?accProducerPayable.id:accReceivable.id,debitCents:item.amountCents,creditCents:'0',eventId:item.eventId},
+      {accountId:accProducerPayable.id,debitCents:'0',creditCents:item.amountCents,eventId:item.type==='INTERNAL_EVENT_TRANSFER_EXECUTED'?payload.destinationEventId:item.eventId}
+    ]};
+    const preview=expectStatus(await req('/api/contabilidade/previa','POST',reviewed,admin),200,'Conferir prévia do fato integrado');
+    expectStatus(await req('/api/contabilidade/processar','POST',{...reviewed,previewHash:preview.previewHash},admin),200,'Processar fato automático com partidas explícitas');
   }
   expectStatus(await req('/api/contabilidade/periodos','PATCH',{periodId:accPeriod.id,status:'CLOSED'},admin),200,'Fechar competência após processar todos os fatos');
   check('Fatos operacionais automáticos são processados antes do fechamento contábil',()=>assert.ok(automaticEvents.length>0));
