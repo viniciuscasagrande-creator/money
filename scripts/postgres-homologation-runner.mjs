@@ -21,6 +21,8 @@ const originalProvider=/provider\s*=\s*"postgresql"/.test(before)?"postgresql":"
 const prisma="node_modules/prisma/build/index.js",tsx="node_modules/tsx/dist/cli.mjs";
 const redact=value=>String(value).replace(/postgres(?:ql)?:\/\/[^\s]+/g,"postgresql://[redacted]");
 const steps=[];let server,generated=false,output="";
+const databaseOnly=process.argv.includes("--database-only");
+if(databaseOnly&&process.argv.includes("--http-only"))throw new Error("Selecione apenas um recorte de homologação.");
 function run(args,env,input){
   const result=spawnSync(process.execPath,args,{env,encoding:"utf8",input,maxBuffer:16*1024*1024,windowsHide:true,timeout:600000});
   if(result.stdout)process.stdout.write(redact(result.stdout));
@@ -40,6 +42,7 @@ try{
   run([tsx,"scripts/postgres-regressions.ts"],environments[1]);
   steps.push("concorrência, idempotência, migração JSON e restauração PostgreSQL aprovadas");
   }
+  if(!databaseOnly){
   run([prisma,"migrate","deploy","--schema=prisma/postgresql/schema.prisma"],environments[2]);
   const listener=net.createServer();await new Promise(r=>listener.listen(0,"127.0.0.1",r));
   const port=listener.address().port;await new Promise(r=>listener.close(r));
@@ -58,8 +61,9 @@ try{
     child.once("error",reject);child.once("exit",code=>code===0?resolve():reject(new Error(`Suíte HTTP retornou ${code}`)));
   });
   steps.push("homologação HTTP completa aprovada usando PostgreSQL");
+  }
   fs.mkdirSync("homologacao-resultados",{recursive:true});
-  fs.writeFileSync("homologacao-resultados/postgresql.json",JSON.stringify({status:"APROVADO",completedAt:new Date().toISOString(),provider:"postgresql",steps},null,2));
+  fs.writeFileSync("homologacao-resultados/postgresql.json",JSON.stringify({status:"APROVADO",completedAt:new Date().toISOString(),provider:"postgresql",scope:databaseOnly?"database-only":process.argv.includes("--http-only")?"http-only":"complete",steps},null,2));
 }catch(e){
   fs.mkdirSync("homologacao-resultados",{recursive:true});
   if(output){fs.writeFileSync("homologacao-resultados/postgresql-server.log",output);console.error(output.slice(-8000));}

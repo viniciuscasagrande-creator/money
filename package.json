@@ -29,6 +29,7 @@
     "test:regression": "tsx --test tests/integration-regressions.test.ts",
     "test:http": "node scripts/run-http-homologation.mjs",
     "backup:verify": "tsx scripts/verify-restoration.ts",
+    "integration:work": "tsx scripts/integration-worker.ts",
     "release:plan": "node scripts/release-vercel.mjs",
     "release:execute": "node scripts/release-vercel.mjs --execute",
     "db:deploy:pg": "prisma migrate deploy --schema=prisma/postgresql/schema.prisma"

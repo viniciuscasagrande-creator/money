@@ -52,6 +52,7 @@ model User {
   producerId   String?
   producer     Producer? @relation(fields: [producerId], references: [id])
   sessions     Session[]
+  integrationJobs IntegrationJob[]
   titles       FinancialTitle[]
   audits       AuditLog[]
   requestedPayouts PayoutRequest[] @relation("PayoutRequester")
@@ -673,4 +674,28 @@ model EventReleaseTier {
   minSoldBps Int
   releaseBps Int
   @@unique([policyId, minSoldBps])
+}
+
+model IntegrationJob {
+  id String @id @default(cuid())
+  provider String @default("ticketing")
+  externalReference String
+  payloadHash String
+  payload String
+  actorId String
+  actor User @relation(fields: [actorId], references: [id])
+  status String @default("PENDING")
+  attempts Int @default(0)
+  totalAttempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  leaseToken String?
+  leaseUntil DateTime?
+  lastErrorCode String?
+  titleId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  finishedAt DateTime?
+  @@unique([provider, externalReference])
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseUntil])
 }

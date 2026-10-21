@@ -222,7 +222,7 @@ test("Etapa 2 (Prioridades 3, 4, 5) e Melhorias Funcionais (Prioridades 7, 8 e F
       // Verificar backup assinado e detecção de adulteração
       const { certificate, envelope } = await runAndRecordBackupVerification(db, admin.id);
       assert.equal(certificate.valid, true);
-      assert.equal(certificate.modelCount, 35);
+      assert.equal(certificate.modelCount, 36);
       assert.ok(certificate.referentialLinksChecked > 0);
 
       const tampered: typeof envelope = JSON.parse(JSON.stringify(envelope));

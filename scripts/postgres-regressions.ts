@@ -5,6 +5,7 @@ import {PrismaClient,Prisma} from "@prisma/client";
 import {assertOwnedSchema} from "./lib/postgres-isolation.mjs";
 import {exportDatabaseDump,restoreDatabaseDump} from "../src/lib/backup-data";
 import {migrateLegacyFinance} from "../src/lib/legacy-finance-migration";
+import {queueRegressions} from "../tests/helpers/integration-queue-scenarios";
 
 const url=process.env.DATABASE_URL??"",schema=process.env.HOMOLOG_SCHEMA??"";
 assertOwnedSchema(url,schema);
@@ -68,6 +69,8 @@ async function main(){
     const transfer=await requestEventTransfer({sourceEventId:origin.id,targetEventId:target.id,amountCents:"100",reason:"Regressão PostgreSQL"},user);
     await assert.rejects(actOnEventTransfer(transfer.id,"APPROVE",user),/Solicitante/);
     steps.push("transferência não contorna permissão ou segregação");
+    const queueFinance=await db.user.create({data:{name:"Financeiro fila PG",email:"queue-finance@pg.invalid",passwordHash:"no-login",role:"FINANCE_DISK"}});
+    steps.push(await queueRegressions(db,admin.id,queueFinance.id));
     const stamp=new Date().toISOString();
     await db.financeSetting.create({data:{key:`retentions:${target.id}`,changedById:admin.id,value:JSON.stringify([{id:"legacy-pg-reserve",eventId:target.id,category:"ECAD",description:"Retenção legada",beneficiary:"ECAD",documentRef:"PG-1",ownerName:"Teste",dueDate:null,amountCents:"100",status:"ACTIVE",createdAt:stamp,updatedAt:stamp}])}});
     assert.equal((await migrateLegacyFinance(db)).reserves,1);

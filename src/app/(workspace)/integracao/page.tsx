@@ -5,14 +5,16 @@ import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {PageHeading,Field,useApi,ErrorNotice} from "@/components/financeiro/shared";
 import {parseBRLToCents} from "@/lib/money";
+import {IntegrationQueue} from "@/components/financeiro/integration-queue";
 export default function IntegracaoIngressosPage(){
  const status=useApi<{configured:boolean;maskedKey:string|null;stats:{producersCount:number;eventsCount:number;receivablesCount:number}}>("/api/integracao/ingressos");
  const [reference,setReference]=useState(""),[producer,setProducer]=useState(""),[document,setDocument]=useState(""),[event,setEvent]=useState(""),[description,setDescription]=useState(""),[amount,setAmount]=useState(""),[due,setDue]=useState("");
  const [busy,setBusy]=useState(false),[message,setMessage]=useState("");
+ const [queued,setQueued]=useState(false),[queueVersion,setQueueVersion]=useState(0);
  async function send(e:FormEvent){e.preventDefault();setBusy(true);setMessage("");try{
-  const response=await fetch("/api/integracao/ingressos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({externalReference:reference,producerName:producer,producerDocument:document||null,eventName:event,description,amountCents:parseBRLToCents(amount),dueDate:due||null})});
+  const response=await fetch("/api/integracao/ingressos",{method:"POST",headers:{"Content-Type":"application/json",...(queued?{Prefer:"respond-async"}:{})},body:JSON.stringify({externalReference:reference,producerName:producer,producerDocument:document||null,eventName:event,description,amountCents:parseBRLToCents(amount),dueDate:due||null})});
   const result=await response.json();if(!response.ok)throw new Error(result.error);
-  setMessage(result.duplicate?"Entrega já importada. Nenhum novo recebível criado.":"Recebível importado com sucesso.");status.reload();
+  setMessage(result.job?(result.job.status==="SUCCEEDED"?"Referência já concluída. Nenhum novo recebível criado.":"Recebido na fila. Acompanhe o processamento abaixo."):(result.duplicate?"Entrega já importada. Nenhum novo recebível criado.":"Recebível importado com sucesso."));status.reload();setQueueVersion(v=>v+1);
  }catch(error){setMessage(error instanceof Error?error.message:"Falha na importação.");}finally{setBusy(false);}}
  return <><PageHeading eyebrow="Integração de ingressos" title="Integração de recebíveis" subtitle="Importe títulos de ingressos usando uma referência única do provedor. Reenvios com a mesma referência preservam o título original."/>
  {status.error&&<ErrorNotice message={status.error} retry={status.reload}/>}
@@ -25,6 +27,6 @@ export default function IntegracaoIngressosPage(){
  <Field label="Descrição"><Input required minLength={3} value={description} onChange={e=>setDescription(e.target.value)}/></Field>
  <Field label="Valor R$"><Input required value={amount} onChange={e=>setAmount(e.target.value)} placeholder="150,00"/></Field>
  <Field label="Vencimento"><Input type="date" value={due} onChange={e=>setDue(e.target.value)}/></Field>
- <div><Button disabled={busy} type="submit">{busy?"Importando…":"Importar recebível"}</Button></div>
- </form>{message&&<p className="mt-4" role="status">{message}</p>}</Card></>;
+ <div className="space-y-3"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={queued} onChange={e=>setQueued(e.target.checked)}/>Processar pela fila</label><Button disabled={busy} type="submit">{busy?"Enviando…":queued?"Enviar para fila":"Importar recebível"}</Button></div>
+ </form>{message&&<p className="mt-4" role="status">{message}</p>}</Card><IntegrationQueue key={queueVersion}/></>;
 }

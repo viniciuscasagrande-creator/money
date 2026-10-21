@@ -92,4 +92,5 @@ E:\MONEY
 ## Entregas incrementais
 
 - [Pacote 2: segurança da conta](docs/deploy/PACOTE2-SEGURANCA.md).
+- [Pacote 3: integrações resilientes](docs/deploy/PACOTE3-INTEGRACOES.md).
 - [Situação dos próximos pacotes](docs/deploy/PROXIMOS-PACOTES.md).

@@ -24,6 +24,6 @@ test("migração versionada preserva reservas e transferências existentes",asyn
     const reserve=await db.eventReserve.findUniqueOrThrow({where:{id:"r"}}),transfer=await db.eventTransfer.findUniqueOrThrow({where:{id:"t"}});
     assert.equal(reserve.amountCents,123n);assert.equal(reserve.category,"OUTRAS_DESPESAS");assert.ok(reserve.updatedAt instanceof Date);
     assert.equal(transfer.amountCents,45n);assert.equal(transfer.status,"REQUESTED");assert.equal(transfer.producerAcceptedById,null);
-    assert.equal(await db.integrationDelivery.count(),0);cli(["migrate","status"]);
+    assert.equal(await db.integrationDelivery.count(),0);assert.equal(await db.integrationJob.count(),0);cli(["migrate","status"]);
   }finally{await db.$disconnect();fs.rmSync(folder,{recursive:true,force:true});}
 });

@@ -11,6 +11,7 @@ import {exportDatabaseDump,restoreDatabaseDump} from "../src/lib/backup-data";
 import {migrateLegacyFinance} from "../src/lib/legacy-finance-migration";
 import bcrypt from "bcryptjs";
 import {changeAccountSecurity,createVerifiedSession,sessionTokenHash,SecurityError} from "../src/lib/account-security";
+import {queueRegressions} from "./helpers/integration-queue-scenarios";
 
 test("regressões financeiras com persistência, idempotência e restauração isolada",async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"money-regression-"));
@@ -50,6 +51,9 @@ test("regressões financeiras com persistência, idempotência e restauração i
       const results=await Promise.all([importTicketingReceivable(input,admin.id),importTicketingReceivable(input,admin.id)]);
       assert.equal(results[0].titleId,results[1].titleId);
       assert.equal(await db.integrationDelivery.count(),1);
+      const legacyHash=createHash("sha256").update(JSON.stringify({...input,producerDocument:null,dueDate:null})).digest("hex");
+      await db.integrationDelivery.updateMany({where:{externalReference:input.externalReference},data:{payloadHash:legacyHash}});
+      assert.equal((await importTicketingReceivable({...input,producerDocument:null,dueDate:null},admin.id)).titleId,results[0].titleId);
       await assert.rejects(importTicketingReceivable({...input,amountCents:"54321"},admin.id),/outro conteúdo/);
       assert.equal(await db.financialTitle.count(),2);
     });
@@ -125,6 +129,9 @@ test("regressões financeiras com persistência, idempotência e restauração i
         assert.equal((await db.payoutRequest.findUniqueOrThrow({where:{id:request.id}})).status,"APPROVED");
         await actOnPayout(request.id,"REJECT",au,{reason:"Encerrar cenário de regressão"});
       }finally{await db.eventReleasePolicy.delete({where:{id:policy.id}});}
+    });
+    await t.test("fila persistente: concorrência, lease, retry, reprocessamento e ausência de duplicação",async()=>{
+      await queueRegressions(db,admin.id,finance.id);
     });
     await t.test("segurança: troca de senha revoga sessões e impede login com credencial desatualizada",async()=>{
       const oldPassword="Senha-anterior-teste-123",newPassword="Senha-nova-teste-456";
@@ -219,6 +226,15 @@ test("regressões financeiras com persistência, idempotência e restauração i
         assert.equal((await api("/api/auth/security","GET",undefined,securityUser)).status,401);
         const login=async(password:string)=>fetch(base+"/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:securityUser.email,password})});
         assert.equal((await login(securityPassword)).status,401);assert.equal((await login(changedPassword)).status,200);
+        assert.equal((await api("/api/integracao/fila","GET",undefined,owner)).status,403);
+        assert.equal((await api("/api/integracao/fila?page=invalid")).status,400);
+        const asynchronous=await fetch(base+"/api/integracao/ingressos",{method:"POST",headers:{Cookie:`disk_financeiro_session=${tokens.get(admin.id)}`,"Content-Type":"application/json",Prefer:"respond-async"},body:JSON.stringify({...input,externalReference:"http-queued-order"})});
+        assert.equal(asynchronous.status,202);const accepted=await asynchronous.json();assert.equal(accepted.job.status,"PENDING");
+        const queueList=await api("/api/integracao/fila");assert.equal(queueList.status,200);
+        assert.ok(!JSON.stringify(queueList.data).includes('"payload"'));assert.ok(!JSON.stringify(queueList.data).includes('"leaseToken"'));
+        assert.equal((await api("/api/integracao/fila","POST",{action:"PROCESS"},finance)).status,200);
+        assert.equal((await api("/api/integracao/fila","POST",{action:"RETRY",id:accepted.job.id,reason:"Tentativa indevida"},finance)).status,403);
+        assert.equal((await db.integrationJob.findUniqueOrThrow({where:{id:accepted.job.id}})).status,"SUCCEEDED");
       }finally{server.kill();await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once("exit",()=>resolve());});}
     });
     await t.test("snapshot sintético restaura valores, datas, vínculos e identificadores de idempotência",async()=>{
@@ -230,7 +246,7 @@ test("regressões financeiras com persistência, idempotência e restauração i
         const counts=await restoreDatabaseDump(restored,dump,true);
         assert.equal(Object.values(counts).reduce((a,b)=>a+b,0),dump.totalRows);
         assert.equal((await restored.bankAccount.findUniqueOrThrow({where:{id:account.id}})).balanceCents,49900n);
-        assert.equal(await restored.integrationDelivery.count(),2);
+        assert.equal(await restored.integrationDelivery.count(),dump.tables.integrationDelivery.count);
         const again=await exportDatabaseDump(restored);
         for(const key of Object.keys(dump.tables))assert.deepEqual(again.tables[key].rows.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))),dump.tables[key].rows.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))),key);
         await assert.rejects(restoreDatabaseDump(restored,dump,true),/banco vazio/);
