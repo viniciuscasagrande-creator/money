@@ -1,5 +1,7 @@
 # MONEY / SOUL Financeiro — v5.2.1
 
+Etapa de homologação PostgreSQL e entrega automatizada: veja [CI/CD e homologação](docs/deploy/CI-CD-E-HOMOLOGACAO-POSTGRESQL.md). Os workflows validam SQLite e PostgreSQL em ambientes separados e deixam a publicação em produção condicionada à revisão do ambiente.
+
 Correções de integridade, autorização, build e recuperação aplicadas em 20/10/2026.
 
 - [Guia de atualização e restauração](docs/deploy/ATUALIZACAO-AUDITORIA-V5.2.1.md)

@@ -114,6 +114,16 @@ test("regressões financeiras com persistência, idempotência e restauração i
       await actOnPayout(payout.id,"SETTLE",au,{bankAccountId:account.id,settlementReference:"dual-settlement-test"});
       await db.financeSetting.update({where:{key},data:{value:JSON.stringify(producerPolicy)}});
     });
+    await t.test("política v5.3 revalida repasse próximo ao teto sem descontar transferências duas vezes",async()=>{
+      const policy=await db.eventReleasePolicy.create({data:{eventId:origin.id,capacityTickets:1,updatedById:admin.id,
+        tiers:{create:[{minSoldBps:0,releaseBps:10000}]}}});
+      try{
+        const request=await createPayout({eventId:origin.id,type:"REPASSE",amountCents:"29000"},pu);
+        await actOnPayout(request.id,"APPROVE",au,{});
+        assert.equal((await db.payoutRequest.findUniqueOrThrow({where:{id:request.id}})).status,"APPROVED");
+        await actOnPayout(request.id,"REJECT",au,{reason:"Encerrar cenário de regressão"});
+      }finally{await db.eventReleasePolicy.delete({where:{id:policy.id}});}
+    });
     await t.test("HTTP: ambas as APIs aplicam os controles e demonstrativos respeitam competência",async()=>{
       const receivable=await db.accountingAccount.create({data:{code:"1.1",name:"Recebível teste",type:"ASSET"}});
       const revenue=await db.accountingAccount.create({data:{code:"3.1",name:"Receita teste",type:"REVENUE"}});

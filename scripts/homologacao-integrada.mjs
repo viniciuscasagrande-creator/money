@@ -428,7 +428,7 @@ try {
     kind: 'account', code: '2.1.01.001', name: 'Obrigações com Produtores', type: 'LIABILITY', postable: true
   }, admin), 201, 'Criar conta contábil Passivo Produtores');
   const accPeriod = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
-    kind: 'period', name: '2026-10'
+    kind: 'period', name: monthForTests
   }, admin), 201, 'Criar período contábil 2026-10');
   const accRule = expectStatus(await req('/api/contabilidade/cadastros', 'POST', {
     kind: 'rule', eventType: 'TICKET_SALE_CAPTURED', version: 1,
@@ -441,7 +441,7 @@ try {
 
   const bizEvt = expectStatus(await req('/api/contabilidade/eventos', 'POST', {
     externalKey: 'EVT-SALE-MULTI-001', type: 'TICKET_SALE_CAPTURED', source: 'ONLINE',
-    sourceId: 'SALE-001', eventId: eventA2.id, amountCents: '11500', occurredAt: '2026-10-15T12:00:00.000Z'
+    sourceId: 'SALE-001', eventId: eventA2.id, amountCents: '11500', occurredAt: `${monthForTests}-15T12:00:00.000Z`
   }, finance), 201, 'Registrar evento de negócio para contabilização');
 
   const processedJournal = expectStatus(await req('/api/contabilidade/processar', 'POST', {
@@ -455,9 +455,9 @@ try {
     ]
   }, admin), 200, 'Processar lançamento contábil de múltiplas partidas');
 
-  const trialBalance = expectStatus(await req('/api/contabilidade?visao=balancete&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar balancete 2026-10');
-  const dreReport = expectStatus(await req('/api/contabilidade?visao=dre&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar DRE 2026-10');
-  const passivosReport = expectStatus(await req('/api/contabilidade?visao=passivos&periodo=2026-10', 'GET', undefined, finance), 200, 'Consultar Passivos 2026-10');
+  const trialBalance = expectStatus(await req(`/api/contabilidade?visao=balancete&periodo=${monthForTests}`, 'GET', undefined, finance), 200, 'Consultar balancete da competência');
+  const dreReport = expectStatus(await req(`/api/contabilidade?visao=dre&periodo=${monthForTests}`, 'GET', undefined, finance), 200, 'Consultar DRE da competência');
+  const passivosReport = expectStatus(await req(`/api/contabilidade?visao=passivos&periodo=${monthForTests}`, 'GET', undefined, finance), 200, 'Consultar passivos da competência');
   expectStatus(await req('/api/contabilidade/periodos', 'PATCH', {periodId:accPeriod.id,status:'CLOSED'},admin),400,'Fechamento bloqueado por eventos automáticos pendentes');
   const closedPeriod={status:'OPEN'};
 

@@ -14,6 +14,7 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
+    transactionOptions: {maxWait:5000,timeout:15000},
     log: ["error", "warn"],
     ...(resolvedUrl ? { datasources: { db: { url: resolvedUrl } } } : {}),
   });

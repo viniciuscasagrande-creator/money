@@ -38,6 +38,7 @@ export function isoDate(value: string | null | undefined) {
 }
 
 export function apiCatch(e: unknown) {
+  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034") return {message:"Outra operação alterou a posição financeira. Atualize os dados e tente novamente.",status:409};
   if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { message: "Já existe um cadastro ou referência com esse identificador.", status: 409 };
   if (e instanceof z.ZodError) return { message: e.issues.map((i) => i.message).join("; "), status: 400 };
   if (e instanceof Error && e.message.startsWith("REGRA:")) return { message: e.message.slice(6), status: 409 };

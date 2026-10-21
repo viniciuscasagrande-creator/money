@@ -20,6 +20,9 @@ backups/
 .vercel
 .env*
 !.env.example
+!.env.homologacao.example
 db-dump-*.json
 manifesto-backup-*.json
 *.bundle
+
+.github/workflows/

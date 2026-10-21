@@ -86,6 +86,8 @@ async function main() {
     "tailwind.config.ts",
     "postcss.config.js",
     ".env.example",
+    ".env.homologacao.example",
+    ".github",
     ".gitignore",
     "vercel.json",
     "neon.ts",
@@ -93,8 +95,7 @@ async function main() {
     "next-env.d.ts",
     "docs",
     "README.md",
-    "RELATORIO_AUDITORIA_E_CORRECAO.md",
-    "SOUL_V5_3_IMPLEMENTACAO.md"
+    "RELATORIO_AUDITORIA_E_CORRECAO.md"
   ];
 
   for (const item of itemsToInclude) {

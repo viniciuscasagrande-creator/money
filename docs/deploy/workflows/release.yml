@@ -1,0 +1,60 @@
+name: Publicar versão validada
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Ambiente de publicação
+        required: true
+        default: preview
+        type: choice
+        options: [preview, production]
+      confirmation:
+        description: Para produção, digite PUBLICAR
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/quality.yml
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.target }}
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      DEPLOY_TARGET: ${{ inputs.target }}
+      DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      RELEASE_DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Instalar CLI Vercel fixada
+        run: npm install --global vercel@56.4.1
+      - name: Revisar plano sem divulgar credenciais
+        run: npm run release:plan
+      - name: Compilar, migrar e publicar
+        run: npm run release:execute
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-${{ inputs.target }}
+          path: homologacao-resultados/release.json
+          if-no-files-found: ignore
+          retention-days: 14

@@ -170,7 +170,7 @@ export async function createPayout(raw: { eventId: string; type: PayoutType; amo
     if (raw.type === "REPASSE" && capacity.lockPolicy.active && capacity.lockEvaluation.blockingReasons.length > 0) {
       return ruleError(capacity.lockEvaluation.blockingReasons[0]);
     }
-    const progressive = raw.type === "REPASSE" ? await releaseLimit(tx, event.id) : null;
+    const progressive = raw.type === "REPASSE" ? await releaseLimit(tx, event.id, capacity) : null;
     const max = raw.type === "REPASSE" ? (progressive ? progressive.availableCents : capacity.repasseCents) : capacity.antecipacaoCents;
     if (amountCents > max) return ruleError("Valor superior ao limite apurado para esta operação.");
     const payout = await tx.payoutRequest.create({ data: {
@@ -201,7 +201,7 @@ export async function actOnPayout(id: string, action: Action, user: SessionUser,
       const available=await eventAvailability(tx,p.eventId,{excludePayoutId:p.id});
       const limit=p.type==="REPASSE"?available.repasseCents:available.antecipacaoCents;
       if(p.amountCents>limit)return ruleError("Posição financeira insuficiente após riscos, retenções e compromissos atuais.");
-      if(p.type==="REPASSE")await validateExistingPayout(tx,p);
+      if(p.type==="REPASSE")await validateExistingPayout(tx,p,available);
       if(policy.approvalPolicy==="DUAL_INTERNAL" && action!=="APPROVE" && p.approvedById===user.id)return ruleError("Dupla aprovação exige segundo responsável interno.");
       const lockPolicy = await loadEventLockPolicy(tx, p.eventId);
       if (lockPolicy.active) {

@@ -5,7 +5,7 @@ import { eventAvailability } from "@/lib/operations";
 type Db = Prisma.TransactionClient;
 const blockedStatuses = ["REQUESTED", "APPROVED", "PRODUCER_ACCEPTED", "READY_TO_SETTLE", "SETTLED"] as const;
 
-export async function releaseLimit(tx: Db, eventId: string) {
+export async function releaseLimit(tx: Db, eventId: string, position?: Awaited<ReturnType<typeof eventAvailability>>) {
   const policy = await tx.eventReleasePolicy.findUnique({
     where: { eventId },
     include: { tiers: { orderBy: { minSoldBps: "asc" } } }
@@ -31,7 +31,7 @@ export async function releaseLimit(tx: Db, eventId: string) {
     eligibleCents: eligible,
     committedCents: payouts._sum.amountCents ?? 0n
   });
-  const available = await eventAvailability(tx, eventId);
+  const available = position ?? await eventAvailability(tx, eventId);
   return {
     ...v,
     version: policy.version,
@@ -42,10 +42,11 @@ export async function releaseLimit(tx: Db, eventId: string) {
 /** Verifica uma solicitação já reservada: não conta sua própria reserva duas vezes. */
 export async function validateExistingPayout(
   tx: Db,
-  p: { eventId: string; amountCents: bigint; type?: "REPASSE" | "ANTECIPACAO" }
+  p: { eventId: string; amountCents: bigint; type?: "REPASSE" | "ANTECIPACAO" },
+  availability: Awaited<ReturnType<typeof eventAvailability>>
 ) {
-  const limit = p.type !== "ANTECIPACAO" ? await releaseLimit(tx, p.eventId) : null;
-  const availability = await eventAvailability(tx, p.eventId);
+  // The caller already calculated this position excluding the current request.
+  const limit = p.type !== "ANTECIPACAO" ? await releaseLimit(tx, p.eventId, availability) : null;
   // O total já comprometido inclui este repasse; se exceder o novo teto, bloqueie.
   if (limit) {
     const commitments = await tx.payoutRequest.aggregate({
@@ -60,10 +61,9 @@ export async function validateExistingPayout(
   const rawRemaining =
     baseCents -
     availability.committedCents -
+    p.amountCents -
     availability.blockedCents -
-    availability.reserveCents -
-    availability.transferReservedCents -
-    availability.transferExecutedCents;
+    availability.reserveCents;
   if (rawRemaining < 0n) {
     throw new Error("REGRA:Retenções, riscos ou outras solicitações reduziram o saldo; reanalise a operação.");
   }

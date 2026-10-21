@@ -1,0 +1,73 @@
+name: Validação financeira
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite:
+    name: SQLite, tipos e regressões HTTP
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      DATABASE_URL: file:./ci.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run typecheck
+      - run: npm run test:static
+      - run: npm run test:ui:static
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:http
+
+  postgresql:
+    name: PostgreSQL 18, migrações e concorrência
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: money_ci
+          POSTGRES_PASSWORD: ci-only-disposable
+          POSTGRES_DB: money_homolog
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U money_ci -d money_homolog"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      POSTGRES_TEST_URL: postgresql://money_ci:ci-only-disposable@localhost:5432/money_homolog
+      ISOLATED_HOMOLOGATION: SIM
+      POSTGRES_TEST_RESTORE_CLIENT: NAO
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:homologacao:pg
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: homologacao-postgresql
+          path: homologacao-resultados/postgresql*.json
+          if-no-files-found: ignore
+          retention-days: 14

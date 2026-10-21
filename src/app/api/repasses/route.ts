@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   ]);
   const balances = await Promise.all(events.map(async e => {
     const availability = await eventAvailability(prisma, e.id);
-    const policy = await releaseLimit(prisma, e.id);
+    const policy = await releaseLimit(prisma, e.id, availability);
     return {
       ...eventAvailabilityDTO(e.id, e.name, availability),
       producerId: e.producerId,
