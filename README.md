@@ -83,8 +83,13 @@ E:\MONEY
 | :--- | :--- |
 | `npm run dev` | Sincroniza o Prisma e inicia o servidor de desenvolvimento (`http://localhost:3000`) |
 | `npm run build` | Sincroniza o Prisma (PostgreSQL/SQLite) e compila a aplicação para produção |
-| `npm test` | Executa os **23 testes unitários** de regras de negócio e cálculos financeiros |
+| `npm test` | Executa testes de regras de negócio, segurança e regressões com persistência e HTTP |
 | `npm run typecheck` | Valida a tipagem TypeScript (`tsc --noEmit`) |
 | `npm run test:static` | Verifica a sintaxe de todos os arquivos TS/TSX e a paridade SQLite/PostgreSQL |
 | `npm run test:smoke` | Executa o smoke test ponta a ponta nas 12 APIs principais |
 | `neon deploy` | Aplica a infraestrutura definida em `neon.ts` ao projeto Lakebase Postgres |
+
+## Entregas incrementais
+
+- [Pacote 2: segurança da conta](docs/deploy/PACOTE2-SEGURANCA.md).
+- [Situação dos próximos pacotes](docs/deploy/PROXIMOS-PACOTES.md).

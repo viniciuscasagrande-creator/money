@@ -4,9 +4,14 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { issueSession, originAllowed, fail } from "@/lib/auth";
+import { SecurityError } from "@/lib/account-security";
 import { getUserMfaConfig, verifyUserMfaChallenge } from "@/lib/security-mfa";
 export const runtime = "nodejs";
-const schema = z.object({ email: z.string().email(), password: z.string().min(1), mfaCode: z.string().trim().min(6).max(16).optional() });
+const schema = z.object({
+  email: z.string().trim().email().max(254),
+  password: z.string().min(1).max(128),
+  mfaCode: z.string().trim().min(6).max(16).optional()
+}).strict();
 export async function POST(request: NextRequest) {
   try {
     if (!originAllowed(request)) return fail("Origem não autorizada.", 403);
@@ -45,9 +50,10 @@ export async function POST(request: NextRequest) {
       }
     }
     await prisma.loginAttempt.deleteMany({ where: { key } });
-    await issueSession(user.id);
+    await issueSession(user.id, user.passwordHash);
     return NextResponse.json({ ok: true, role: user.role, mfaEnabled: Boolean(mfaConfig?.enabled), user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err) {
+    if (err instanceof SecurityError) return fail(err.message, err.status);
     console.error("Erro em /api/auth/login:", err);
     return fail("Serviço de banco de dados indisponível ou em atualização. Tente novamente em instantes.", 500);
   }

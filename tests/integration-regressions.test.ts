@@ -9,6 +9,8 @@ import {randomBytes,createHash} from "node:crypto";
 import {PrismaClient} from "@prisma/client";
 import {exportDatabaseDump,restoreDatabaseDump} from "../src/lib/backup-data";
 import {migrateLegacyFinance} from "../src/lib/legacy-finance-migration";
+import bcrypt from "bcryptjs";
+import {changeAccountSecurity,createVerifiedSession,sessionTokenHash,SecurityError} from "../src/lib/account-security";
 
 test("regressões financeiras com persistência, idempotência e restauração isolada",async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"money-regression-"));
@@ -124,6 +126,44 @@ test("regressões financeiras com persistência, idempotência e restauração i
         await actOnPayout(request.id,"REJECT",au,{reason:"Encerrar cenário de regressão"});
       }finally{await db.eventReleasePolicy.delete({where:{id:policy.id}});}
     });
+    await t.test("segurança: troca de senha revoga sessões e impede login com credencial desatualizada",async()=>{
+      const oldPassword="Senha-anterior-teste-123",newPassword="Senha-nova-teste-456";
+      const passwordHash=await bcrypt.hash(oldPassword,12);
+      const person=await db.user.create({data:{name:"Segurança",email:"security@regression.invalid",passwordHash,role:"ADMIN"}});
+      const current=sessionTokenHash("security-session"),other=sessionTokenHash("security-other");
+      for(const tokenHash of [current,other])await createVerifiedSession(db,person.id,passwordHash,tokenHash,new Date(Date.now()+600000));
+      const input={userId:person.id,tokenHash:current,currentPassword:oldPassword,action:"CHANGE_PASSWORD" as const,newPassword};
+      await assert.rejects(changeAccountSecurity(db,{...input,currentPassword:"errada"}),e=>e instanceof SecurityError&&e.status===401);
+      assert.equal(await db.session.count({where:{userId:person.id}}),2);
+      await assert.rejects(changeAccountSecurity(db,{...input,newPassword:"á".repeat(40)}),e=>e instanceof SecurityError&&e.status===400);
+      await assert.rejects(changeAccountSecurity(db,{...input,newPassword:oldPassword}),e=>e instanceof SecurityError&&e.status===400);
+      await assert.rejects(changeAccountSecurity(db,{...input,tokenHash:sessionTokenHash("foreign")}),e=>e instanceof SecurityError&&e.status===401);
+      assert.equal((await db.user.findUniqueOrThrow({where:{id:person.id}})).passwordHash,passwordHash);
+      const result=await changeAccountSecurity(db,input);assert.deepEqual(result,{revoked:2,requiresLogin:true});
+      assert.equal(await db.session.count({where:{userId:person.id}}),0);
+      const changed=await db.user.findUniqueOrThrow({where:{id:person.id}});
+      assert.ok(await bcrypt.compare(newPassword,changed.passwordHash));assert.equal(await bcrypt.compare(oldPassword,changed.passwordHash),false);
+      await assert.rejects(createVerifiedSession(db,person.id,passwordHash,other,new Date(Date.now()+600000)),e=>e instanceof SecurityError&&e.status===409);
+      const audit=await db.auditLog.findFirstOrThrow({where:{actorId:person.id,action:"PASSWORD_CHANGED"}});
+      assert.ok(!JSON.stringify(audit).includes(newPassword));
+    });
+    await t.test("segurança: revogação preserva sessão atual, isola usuários e limita tentativas",async()=>{
+      const password="Senha-sessoes-teste-789",passwordHash=await bcrypt.hash(password,12);
+      const person=await db.user.create({data:{name:"Sessões",email:"sessions@regression.invalid",passwordHash,role:"ADMIN"}});
+      const current=sessionTokenHash("revoke-current"),other=sessionTokenHash("revoke-other"),foreign=sessionTokenHash("revoke-foreign");
+      for(const tokenHash of [current,other])await createVerifiedSession(db,person.id,passwordHash,tokenHash,new Date(Date.now()+600000));
+      await db.session.create({data:{userId:admin.id,tokenHash:foreign,expiresAt:new Date(Date.now()+600000)}});
+      const input={userId:person.id,tokenHash:current,currentPassword:password,action:"REVOKE_OTHERS" as const};
+      assert.deepEqual(await changeAccountSecurity(db,input),{revoked:1,requiresLogin:false});
+      assert.ok(await db.session.findUnique({where:{tokenHash:current}}));assert.ok(await db.session.findUnique({where:{tokenHash:foreign}}));
+      for(let i=0;i<5;i++)await assert.rejects(changeAccountSecurity(db,{...input,currentPassword:"errada"}),e=>e instanceof SecurityError&&e.status===401);
+      await assert.rejects(changeAccountSecurity(db,input),e=>e instanceof SecurityError&&e.status===429);
+      await db.loginAttempt.updateMany({where:{key:sessionTokenHash(`account-security:${person.id}`)},data:{lockedUntil:new Date(Date.now()-1),lastAttemptAt:new Date(Date.now()-16*60000)}});
+      await db.session.update({where:{tokenHash:current},data:{expiresAt:new Date(Date.now()-1000)}});
+      await assert.rejects(changeAccountSecurity(db,input),e=>e instanceof SecurityError&&e.status===401);
+      await db.user.update({where:{id:person.id},data:{active:false}});
+      await assert.rejects(createVerifiedSession(db,person.id,passwordHash,sessionTokenHash("inactive"),new Date(Date.now()+600000)));
+    });
     await t.test("HTTP: ambas as APIs aplicam os controles e demonstrativos respeitam competência",async()=>{
       const receivable=await db.accountingAccount.create({data:{code:"1.1",name:"Recebível teste",type:"ASSET"}});
       const revenue=await db.accountingAccount.create({data:{code:"3.1",name:"Receita teste",type:"REVENUE"}});
@@ -144,6 +184,12 @@ test("regressões financeiras com persistência, idempotência e restauração i
       try{
         let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base+"/login")).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}
         assert.ok(ready,logs);
+        assert.equal((await fetch(base+"/api/auth/security")).status,401);
+        const ownSessions=await api("/api/auth/security","GET",undefined,owner);
+        assert.equal(ownSessions.status,200);assert.equal(ownSessions.data.items.length,1);assert.equal(ownSessions.data.items[0].current,true);
+        assert.ok(!JSON.stringify(ownSessions.data).includes("tokenHash"));
+        assert.equal((await api("/api/auth/security","POST",{action:"REVOKE_OTHERS",currentPassword:"invalid",userId:admin.id},owner)).status,400);
+        assert.equal((await fetch(base+"/api/auth/security",{method:"POST",headers:{Cookie:`disk_financeiro_session=${tokens.get(owner.id)}`,Origin:"https://foreign.invalid","Content-Type":"application/json"},body:JSON.stringify({action:"REVOKE_OTHERS",currentPassword:"invalid"})})).status,403);
         for(const month of ["2026-01","2026-02"]){
           const dre=await api(`/api/contabilidade?visao=dre&periodo=${month}`);assert.equal(dre.status,200);assert.equal(dre.data.receitaBrutaCents,month==="2026-01"?"100":"200");
           const trial=await api(`/api/contabilidade?visao=balancete&periodo=${month}`);assert.equal(trial.status,200);assert.equal(trial.data.balanced,true);
@@ -161,6 +207,18 @@ test("regressões financeiras com persistência, idempotência e restauração i
         const one=await api("/api/integracao/ingressos","POST",input),two=await api("/api/integracao/ingressos","POST",input);
         assert.equal(one.status,200);assert.equal(two.status,200);assert.equal(one.data.titleId,two.data.titleId);assert.equal(two.data.duplicate,true);
         assert.equal((await api("/api/integracao/ingressos","POST",{...input,amountCents:"600"})).status,409);
+        const securityPassword="Senha-http-seguranca-123",changedPassword="Senha-http-atualizada-456";
+        const securityUser=await db.user.create({data:{name:"HTTP Segurança",email:"http-security@regression.invalid",passwordHash:await bcrypt.hash(securityPassword,12),role:"ADMIN"}});
+        const securityToken=randomBytes(32).toString("hex");tokens.set(securityUser.id,securityToken);
+        for(const token of [securityToken,randomBytes(32).toString("hex")])await db.session.create({data:{userId:securityUser.id,tokenHash:sessionTokenHash(token),expiresAt:new Date(Date.now()+600000)}});
+        const revoked=await api("/api/auth/security","POST",{action:"REVOKE_OTHERS",currentPassword:securityPassword},securityUser);
+        assert.equal(revoked.status,200);assert.equal(revoked.data.revoked,1);
+        assert.equal((await api("/api/auth/security","GET",undefined,securityUser)).status,200);
+        const changed=await api("/api/auth/security","POST",{action:"CHANGE_PASSWORD",currentPassword:securityPassword,newPassword:changedPassword},securityUser);
+        assert.equal(changed.status,200);assert.equal(changed.data.requiresLogin,true);
+        assert.equal((await api("/api/auth/security","GET",undefined,securityUser)).status,401);
+        const login=async(password:string)=>fetch(base+"/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:securityUser.email,password})});
+        assert.equal((await login(securityPassword)).status,401);assert.equal((await login(changedPassword)).status,200);
       }finally{server.kill();await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once("exit",()=>resolve());});}
     });
     await t.test("snapshot sintético restaura valores, datas, vínculos e identificadores de idempotência",async()=>{

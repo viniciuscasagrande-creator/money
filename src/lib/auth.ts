@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
+import { createVerifiedSession } from "@/lib/account-security";
 
 const COOKIE_NAME = "disk_financeiro_session";
 const AGE_SEC = 60 * 60 * 8;
@@ -22,9 +23,9 @@ export async function findCurrentUser() {
 export type SessionUser = NonNullable<Awaited<ReturnType<typeof findCurrentUser>>>;
 export const isInternal = (role: Role) => role === "ADMIN" || role === "FINANCE_DISK";
 
-export async function issueSession(userId: string) {
+export async function issueSession(userId: string, passwordHash: string) {
   const token = randomBytes(32).toString("hex");
-  await prisma.session.create({ data: { userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + AGE_SEC * 1000) } });
+  await createVerifiedSession(prisma,userId,passwordHash,hashToken(token),new Date(Date.now() + AGE_SEC * 1000));
   (await cookies()).set(COOKIE_NAME, token, {
     httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: AGE_SEC
   });
