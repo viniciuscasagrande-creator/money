@@ -87,6 +87,16 @@ export function progressiveReleaseRateBps(soldPercentBps: number, postEventClose
   return { label: "Abaixo de 30%", releaseLimitBps: 0 };
 }
 
+export type EvaluatedPayoutLock = {
+  code: string;
+  number: string;
+  title: string;
+  category: PayoutLockCategory;
+  enforcementType: "EFFECTIVE_BLOCK" | "ACTIVE_CEILING" | "ADVISORY_WARNING" | "WORKFLOW_REQUIREMENT";
+  status: "PASSED" | "BLOCKED" | "WARNING" | "LIMIT_APPLIED";
+  message: string;
+};
+
 export function evaluatePayoutLocksAndCeiling(input: {
   settledProducerCents: bigint;
   totalProducerNetCents?: bigint;
@@ -110,7 +120,23 @@ export function evaluatePayoutLocksAndCeiling(input: {
   manualBlockReason?: string;
   maxSingleRequestCents?: bigint;
   maxCumulativeEventCents?: bigint;
+  releaseGateDateIso?: string | null;
+  nowIso?: string;
+  daysUntilEvent?: number | null;
+  maxHorizonDays?: number | null;
+  horizonReducerBps?: number;
+  advanceCommittedCents?: bigint;
+  maxAdvanceCents?: bigint;
+  producerHistoryScore?: number;
+  minProducerHistoryScore?: number;
+  hoursSinceLastRequest?: number | null;
+  minCooldownHours?: number;
+  hasEligibleApproverAuthority?: boolean;
+  dualApprovalRequired?: boolean;
+  dualApprovalThresholdCents?: bigint;
+  requireDigitalSignatures?: boolean;
 }) {
+  const postClosed = input.postEventClosed ?? false;
   const confirmedLoss = input.confirmedLossCents ?? 0n;
   const settledRight = input.settledProducerCents > confirmedLoss ? input.settledProducerCents - confirmedLoss : 0n;
   const totalReserves = input.mandatoryRetentionsCents + input.openRiskCents;
@@ -119,11 +145,19 @@ export function evaluatePayoutLocksAndCeiling(input: {
     ? balanceAfterReservesCents - input.previousPayoutsCents
     : 0n;
 
-  const tier = progressiveReleaseRateBps(input.soldPercentBps, input.postEventClosed ?? false);
+  const tier = progressiveReleaseRateBps(input.soldPercentBps, postClosed);
   const triggerBps = input.salesTriggerBps ?? 3000;
-  const effectiveReleaseBps = input.soldPercentBps < triggerBps && !(input.postEventClosed ?? false)
+  let effectiveReleaseBps = input.soldPercentBps < triggerBps && !postClosed
     ? 0
     : (input.customReleaseLimitBps ?? tier.releaseLimitBps);
+
+  const horizonDays = input.daysUntilEvent ?? null;
+  const maxHorizon = input.maxHorizonDays ?? null;
+  const horizonReducer = input.horizonReducerBps ?? 0;
+  const horizonExceeded = !postClosed && maxHorizon !== null && maxHorizon > 0 && horizonDays !== null && horizonDays > maxHorizon;
+  if (horizonExceeded && horizonReducer > 0 && horizonReducer < 10000) {
+    effectiveReleaseBps = Math.max(0, Math.round((effectiveReleaseBps * (10000 - horizonReducer)) / 10000));
+  }
 
   const calcBase: ReleaseCalculationBase = input.calculationBase ?? "PRODUCER_NET_AFTER_RETENTIONS";
   let baseAmountCents = balanceAfterReservesCents;
@@ -156,12 +190,53 @@ export function evaluatePayoutLocksAndCeiling(input: {
   const conditionalWarnings: string[] = [];
 
   if (financialAvailableCents <= 0n) blockingReasons.push("Trava 03/04: Ausência de saldo liquidado disponível após retenções obrigatórias e repasses anteriores.");
-  if (input.soldPercentBps < triggerBps && !(input.postEventClosed ?? false)) {
+  if (input.soldPercentBps < triggerBps && !postClosed) {
     blockingReasons.push(`Trava 01: Percentual de ingressos vendidos (${(input.soldPercentBps / 100).toFixed(2)}%) abaixo do gatilho mínimo (${(triggerBps / 100).toFixed(2)}%).`);
   }
+
+  const nowMs = input.nowIso ? new Date(input.nowIso).getTime() : Date.now();
+  const gateMs = input.releaseGateDateIso ? new Date(input.releaseGateDateIso).getTime() : null;
+  const dateGateBlocked = !postClosed && gateMs !== null && !Number.isNaN(gateMs) && nowMs < gateMs;
+  if (dateGateBlocked) {
+    blockingReasons.push(`Trava 05: Repasses bloqueados antes da data-marco (${input.releaseGateDateIso!.slice(0, 10)}).`);
+  }
+
+  const horizonHardBlocked = horizonExceeded && (horizonReducer === 0 || horizonReducer >= 10000);
+  if (horizonHardBlocked) {
+    blockingReasons.push(`Trava 06: Prazo até o evento (${horizonDays} dias) excede o horizonte máximo autorizado (${maxHorizon} dias).`);
+  } else if (horizonExceeded && horizonReducer > 0) {
+    conditionalWarnings.push(`Trava 06: Redutor de horizonte (${(horizonReducer / 100).toFixed(2)}%) aplicado por distância do evento (${horizonDays} dias).`);
+  }
+
   if (input.contractSigned === false) blockingReasons.push("Trava 07: Contrato do evento pendente de assinatura/vigência.");
   if (input.producerDocsValid === false) blockingReasons.push("Trava 08: Documentação cadastral/bancária do produtor pendente.");
   if (input.overdueExpensesActive === true) blockingReasons.push("Trava 10: Existem despesas críticas vencidas vinculadas ao evento.");
+
+  const advCommitted = input.advanceCommittedCents ?? 0n;
+  const maxAdv = input.maxAdvanceCents ?? 0n;
+  const advanceCapExceeded = maxAdv > 0n && advCommitted > maxAdv;
+  if (advanceCapExceeded) {
+    blockingReasons.push("Trava 11: Limite máximo de antecipações concedidas para o evento foi ultrapassado.");
+  }
+
+  const prodScore = input.producerHistoryScore ?? 100;
+  const minScore = input.minProducerHistoryScore ?? 60;
+  const scoreBlocked = prodScore < minScore;
+  if (scoreBlocked) {
+    blockingReasons.push(`Trava 12: Score de histórico financeiro do produtor (${prodScore}) abaixo do mínimo exigido (${minScore}).`);
+  }
+
+  const cooldownMin = input.minCooldownHours ?? 0;
+  const hoursSinceLast = input.hoursSinceLastRequest ?? null;
+  const cooldownBlocked = cooldownMin > 0 && hoursSinceLast !== null && hoursSinceLast < cooldownMin;
+  if (cooldownBlocked) {
+    blockingReasons.push(`Trava 16: Intervalo mínimo entre solicitações (${cooldownMin}h) ainda não decorrido (${hoursSinceLast}h desde o último pedido).`);
+  }
+
+  if (input.hasEligibleApproverAuthority === false) {
+    blockingReasons.push("Trava 17: Ausência de aprovador com alçada financeira ativa para autorizar a operação.");
+  }
+
   if (input.manualBlockActive === true) blockingReasons.push(`Trava 20: Bloqueio manual justificado (${input.manualBlockReason || "Auditoria interna"}).`);
 
   if (input.criticalRiskActive === true || input.openRiskCents > 0n) {
@@ -170,10 +245,135 @@ export function evaluatePayoutLocksAndCeiling(input: {
   if (input.reconciliationApproved === false) {
     conditionalWarnings.push("Trava 13: Conciliação bancária pendente — sujeita à conferência do Financeiro antes da baixa.");
   }
+  if (input.dualApprovalRequired === true) {
+    conditionalWarnings.push("Trava 18: Política de dupla aprovação interna ativa — exige dois signatários internos distintos.");
+  }
 
   if (blockingReasons.length > 0) {
     maxNewRequestCents = 0n;
   }
+
+  const statusByCode: Record<string, { enforcementType: EvaluatedPayoutLock["enforcementType"]; status: EvaluatedPayoutLock["status"]; message: string }> = {
+    MIN_TICKETS_SOLD_PCT: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: input.soldPercentBps < triggerBps && !postClosed ? "BLOCKED" : "PASSED",
+      message: `Vendido ${(input.soldPercentBps / 100).toFixed(2)}% vs gatilho ${(triggerBps / 100).toFixed(2)}%`
+    },
+    MAX_PAYOUT_PCT_TIER: {
+      enforcementType: "ACTIVE_CEILING",
+      status: commercialRemainingCents <= 0n && !postClosed ? "BLOCKED" : "LIMIT_APPLIED",
+      message: `Faixa ${tier.label} autoriza ${(effectiveReleaseBps / 100).toFixed(2)}% sobre a base`
+    },
+    SETTLED_BALANCE_ONLY: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: settledRight <= 0n || financialAvailableCents <= 0n ? "BLOCKED" : "PASSED",
+      message: settledRight > 0n ? "Saldo efetivamente liquidado confirmado" : "Sem saldo liquidado disponível"
+    },
+    MANDATORY_RETENTION: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: input.mandatoryRetentionsCents > 0n ? "LIMIT_APPLIED" : "PASSED",
+      message: input.mandatoryRetentionsCents > 0n ? "Retenções obrigatórias deduzidas prioritariamente" : "Sem retenções obrigatórias pendentes"
+    },
+    EVENT_DATE_GATE: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: dateGateBlocked ? "BLOCKED" : "PASSED",
+      message: dateGateBlocked ? `Bloqueado até ${input.releaseGateDateIso!.slice(0, 10)}` : "Marco temporal atendido"
+    },
+    EVENT_HORIZON_LIMIT: {
+      enforcementType: horizonHardBlocked ? "EFFECTIVE_BLOCK" : "ACTIVE_CEILING",
+      status: horizonHardBlocked ? "BLOCKED" : horizonExceeded ? "LIMIT_APPLIED" : "PASSED",
+      message: horizonExceeded ? `Evento a ${horizonDays} dias (limite ${maxHorizon}d)` : "Horizonte de realização regular"
+    },
+    SIGNED_CONTRACT_REQUIRED: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: input.contractSigned === false ? "BLOCKED" : "PASSED",
+      message: input.contractSigned === false ? "Contrato pendente de assinatura" : "Contrato assinado e vigente"
+    },
+    PRODUCER_DOCS_VALID: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: input.producerDocsValid === false ? "BLOCKED" : "PASSED",
+      message: input.producerDocsValid === false ? "Documentação cadastral/bancária pendente" : "Documentação do produtor validada"
+    },
+    CHARGEBACK_REFUND_HOLD: {
+      enforcementType: "ADVISORY_WARNING",
+      status: input.criticalRiskActive === true || input.openRiskCents > 0n ? "WARNING" : "PASSED",
+      message: input.openRiskCents > 0n ? "Exposição de disputa retida cautelarmente" : "Sem disputas abertas"
+    },
+    OVERDUE_EXPENSES_BLOCK: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: input.overdueExpensesActive === true ? "BLOCKED" : "PASSED",
+      message: input.overdueExpensesActive === true ? "Despesas críticas vencidas bloqueiam liberação" : "Sem despesas críticas vencidas"
+    },
+    ADVANCE_LIMIT_CAP: {
+      enforcementType: "ACTIVE_CEILING",
+      status: advanceCapExceeded ? "BLOCKED" : advCommitted > 0n ? "LIMIT_APPLIED" : "PASSED",
+      message: advanceCapExceeded ? "Limite de antecipações excedido" : "Antecipações dentro do teto"
+    },
+    FINANCIAL_HISTORY_SCORE: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: scoreBlocked ? "BLOCKED" : "PASSED",
+      message: `Score financeiro ${prodScore}/${minScore}`
+    },
+    BANK_RECONCILIATION_REQ: {
+      enforcementType: "WORKFLOW_REQUIREMENT",
+      status: input.reconciliationApproved === false ? "WARNING" : "PASSED",
+      message: input.reconciliationApproved === false ? "Bloqueia a baixa final até conciliação bancária" : "Conciliação aprovada"
+    },
+    MAX_SINGLE_REQUEST: {
+      enforcementType: "ACTIVE_CEILING",
+      status: input.maxSingleRequestCents && input.maxSingleRequestCents > 0n ? "LIMIT_APPLIED" : "PASSED",
+      message: input.maxSingleRequestCents && input.maxSingleRequestCents > 0n ? "Teto por operação individual ativo" : "Limitado pelo saldo comercial disponível"
+    },
+    MAX_CUMULATIVE_EVENT: {
+      enforcementType: "ACTIVE_CEILING",
+      status: input.maxCumulativeEventCents && input.maxCumulativeEventCents > 0n
+        ? (input.previousPayoutsCents >= input.maxCumulativeEventCents ? "BLOCKED" : "LIMIT_APPLIED")
+        : "PASSED",
+      message: input.maxCumulativeEventCents && input.maxCumulativeEventCents > 0n ? "Teto acumulado por evento ativo" : "Limitado pela faixa progressiva do evento"
+    },
+    REQUEST_FREQUENCY_COOLDOWN: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: cooldownBlocked ? "BLOCKED" : "PASSED",
+      message: cooldownBlocked ? `Aguardar intervalo mínimo de ${cooldownMin}h` : "Frequência de solicitações regular"
+    },
+    FINANCE_AUTHORITY_APPROVAL: {
+      enforcementType: "WORKFLOW_REQUIREMENT",
+      status: input.hasEligibleApproverAuthority === false ? "BLOCKED" : "PASSED",
+      message: "Exige alçada individual ativa do aprovador financeiro"
+    },
+    DUAL_APPROVAL_HIGH_VALUE: {
+      enforcementType: "WORKFLOW_REQUIREMENT",
+      status: input.dualApprovalRequired ? "WARNING" : "PASSED",
+      message: input.dualApprovalRequired ? "Exige dois aprovadores internos distintos" : "Aprovação financeira padrão"
+    },
+    DIGITAL_SIGNATURES_FLOW: {
+      enforcementType: "WORKFLOW_REQUIREMENT",
+      status: input.requireDigitalSignatures === false ? "WARNING" : "PASSED",
+      message: "Fluxo formal Aprovação -> Aceite do Produtor -> Assinatura SOUL ativo"
+    },
+    MANUAL_JUSTIFIED_BLOCK: {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: input.manualBlockActive === true ? "BLOCKED" : "PASSED",
+      message: input.manualBlockActive === true ? `Bloqueado: ${input.manualBlockReason || "Auditoria interna"}` : "Sem bloqueio manual ativo"
+    }
+  };
+
+  const evaluatedLocks: EvaluatedPayoutLock[] = PAYOUT_LOCK_CATALOG.map((def) => {
+    const info = statusByCode[def.code] ?? {
+      enforcementType: "EFFECTIVE_BLOCK",
+      status: "PASSED",
+      message: "Regra verificada"
+    };
+    return {
+      code: def.code,
+      number: def.number,
+      title: def.title,
+      category: def.category,
+      enforcementType: info.enforcementType,
+      status: info.status,
+      message: info.message
+    };
+  });
 
   return {
     tierLabel: tier.label,
@@ -186,7 +386,8 @@ export function evaluatePayoutLocksAndCeiling(input: {
     maxNewRequestCents,
     eligible: blockingReasons.length === 0 && maxNewRequestCents > 0n,
     blockingReasons,
-    conditionalWarnings
+    conditionalWarnings,
+    evaluatedLocks
   };
 }
 

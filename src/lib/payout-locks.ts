@@ -41,6 +41,14 @@ export type EventLockPolicyConfig = {
   maxSingleRequestCents: string;
   maxCumulativeEventCents: string;
   postEventClosed: boolean;
+  releaseGateDateIso?: string | null;
+  daysUntilEvent?: number | null;
+  maxHorizonDays?: number | null;
+  horizonReducerBps?: number;
+  maxAdvanceCents?: string;
+  producerHistoryScore?: number;
+  minProducerHistoryScore?: number;
+  minCooldownHours?: number;
   updatedAt: string;
 };
 
@@ -156,6 +164,9 @@ export function evaluateEventPolicy(params: {
   openRiskCents: bigint;
   confirmedLossCents: bigint;
   committedPayoutsCents: bigint;
+  advanceCommittedCents?: bigint;
+  hoursSinceLastRequest?: number | null;
+  dualApprovalRequired?: boolean;
 }) {
   const mandatoryRetentionsCents = sumActiveRetentionsCents(params.retentions);
   const soldTickets = params.policy.soldTicketsOverride !== null
@@ -192,7 +203,20 @@ export function evaluateEventPolicy(params: {
       : 0n,
     maxCumulativeEventCents: params.policy.active && /^\d+$/.test(params.policy.maxCumulativeEventCents)
       ? BigInt(params.policy.maxCumulativeEventCents)
-      : 0n
+      : 0n,
+    releaseGateDateIso: params.policy.active ? (params.policy.releaseGateDateIso ?? null) : null,
+    daysUntilEvent: params.policy.active ? (params.policy.daysUntilEvent ?? null) : null,
+    maxHorizonDays: params.policy.active ? (params.policy.maxHorizonDays ?? null) : null,
+    horizonReducerBps: params.policy.active ? (params.policy.horizonReducerBps ?? 0) : 0,
+    advanceCommittedCents: params.advanceCommittedCents ?? 0n,
+    maxAdvanceCents: params.policy.active && params.policy.maxAdvanceCents && /^\d+$/.test(params.policy.maxAdvanceCents)
+      ? BigInt(params.policy.maxAdvanceCents)
+      : 0n,
+    producerHistoryScore: params.policy.active ? (params.policy.producerHistoryScore ?? 100) : 100,
+    minProducerHistoryScore: params.policy.active ? (params.policy.minProducerHistoryScore ?? 60) : 0,
+    hoursSinceLastRequest: params.hoursSinceLastRequest ?? null,
+    minCooldownHours: params.policy.active ? (params.policy.minCooldownHours ?? 0) : 0,
+    dualApprovalRequired: params.dualApprovalRequired ?? false
   });
 
   return {

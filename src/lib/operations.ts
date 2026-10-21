@@ -1,4 +1,4 @@
-import {emitAccountingBusinessEvent} from "@/lib/accounting-integration";
+import { emitAccountingBusinessEvent } from "@/lib/accounting-integration";
 import { Prisma, PayoutStatus, PayoutType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseCents } from "@/lib/money";
@@ -6,25 +6,60 @@ import { adjustedAvailability } from "@/lib/control-math";
 import type { SessionUser } from "@/lib/auth";
 import { ensureApprovalAuthority, hasCapability } from "@/lib/governance";
 
-import { ruleError, saleBreakdown } from "@/lib/split-calculation";
-export { nonnegativeCents, percentageCents, ruleError, saleBreakdown } from "@/lib/split-calculation";
+import { ruleError, saleBreakdown, extendedSaleBreakdown, type SaleChannel, type PaymentMethod, type CostBearer } from "@/lib/split-calculation";
+export { nonnegativeCents, percentageCents, ruleError, saleBreakdown, extendedSaleBreakdown } from "@/lib/split-calculation";
 
 export async function registerSale(raw: {
-  eventId: string; externalReference: string; mdrRuleId: string; unitPriceCents: string; quantity: number
+  eventId: string;
+  externalReference: string;
+  mdrRuleId: string;
+  unitPriceCents: string;
+  quantity: number;
+  channel?: SaleChannel;
+  paymentMethod?: PaymentMethod;
+  installments?: number;
+  costBearer?: CostBearer;
+  spreadBps?: number;
+  advancedBps?: number;
+  rebateBps?: number;
+  installmentInterestBps?: number;
 }, user: SessionUser) {
   return prisma.$transaction(async tx => {
-    const [event, mdr, fee, extraFixedSetting] = await Promise.all([
+    const [event, mdr, fee, extraFixedSetting, feeExt] = await Promise.all([
       tx.event.findUnique({ where: { id: raw.eventId }, include: { producer: { select: { active: true } } } }),
       tx.mdrRule.findUnique({ where: { id: raw.mdrRuleId }, include: { gateway: true, brand: true } }),
       tx.eventFeePolicy.findUnique({ where: { eventId: raw.eventId } }),
-      tx.financeSetting.findUnique({ where: { key: `fee_fixed_extra:${raw.eventId}` } })
+      tx.financeSetting.findUnique({ where: { key: `fee_fixed_extra:${raw.eventId}` } }),
+      loadEventFeeExtension(tx, raw.eventId)
     ]);
     if (!event || !event.producer.active || event.status === "CLOSED") return ruleError("Evento indisponível.");
     if (!mdr || !mdr.active || !mdr.gateway.active || !mdr.brand.active) return ruleError("Regra de MDR indisponível.");
     if (!fee || !fee.active) return ruleError("Configure primeiro a taxa da Disk para este evento.");
     const extraFixedCents = extraFixedSetting?.value && /^\d+$/.test(extraFixedSetting.value) ? BigInt(extraFixedSetting.value) : 0n;
-    const parts = saleBreakdown({ unitPriceCents: parseCents(raw.unitPriceCents), quantity: raw.quantity,
-      feeMode: fee.mode, feeValue: fee.value, feeExtraFixedCents: extraFixedCents, mdrRateBps: mdr.rateBps, mdrFixedCents: mdr.fixedCents, producerPaysMdr: fee.producerPaysMdr });
+    const spreadBps = raw.spreadBps ?? feeExt.spreadBps ?? 0;
+    const advancedBps = raw.advancedBps ?? feeExt.advancedBps ?? 0;
+    const rebateBps = raw.rebateBps ?? feeExt.rebateBps ?? 0;
+    const installmentInterestBps = raw.installmentInterestBps ?? feeExt.installmentInterestBps ?? 0;
+    const hasExtendedCharges = spreadBps > 0 || advancedBps > 0 || rebateBps > 0 || installmentInterestBps > 0 || raw.costBearer !== undefined;
+    const costBearer: CostBearer = raw.costBearer ?? (hasExtendedCharges ? feeExt.costBearer : (fee.producerPaysMdr ? "PRODUCER" : "SOUL"));
+    const parts = extendedSaleBreakdown({
+      unitPriceCents: parseCents(raw.unitPriceCents),
+      quantity: raw.quantity,
+      feeMode: fee.mode,
+      feeValue: fee.value,
+      feeExtraFixedCents: extraFixedCents,
+      mdrRateBps: mdr.rateBps,
+      mdrFixedCents: mdr.fixedCents,
+      producerPaysMdr: fee.producerPaysMdr,
+      channel: raw.channel ?? feeExt.channel,
+      paymentMethod: raw.paymentMethod,
+      installments: raw.installments ?? mdr.installments,
+      installmentInterestBps,
+      costBearer,
+      spreadBps,
+      advancedBps,
+      rebateBps
+    });
     const title = await tx.financialTitle.create({ data: {
       kind: "RECEIVABLE", description: `Liquidação adquirente · ${raw.externalReference}`,
       amountCents: parts.netSettlement, producerId: event.producerId, eventId: event.id, createdById: user.id
@@ -39,9 +74,50 @@ export async function registerSale(raw: {
       netSettlementCents: parts.netSettlement, producerNetCents: parts.producerNet,
       diskNetCents: parts.diskNet, receivableTitleId: title.id, createdById: user.id
     } });
+    const historicalMemory = {
+      ...parts.memory,
+      saleId: sale.id,
+      externalReference: raw.externalReference,
+      gatewayName: mdr.gateway.name,
+      brandName: mdr.brand.name,
+      feeModeAtSale: fee.mode,
+      feeValueAtSale: fee.value.toString(),
+      feeExtraFixedCentsAtSale: extraFixedCents.toString(),
+      mdrRateBpsAtSale: mdr.rateBps,
+      mdrFixedCentsAtSale: mdr.fixedCents.toString(),
+      spreadBpsAtSale: spreadBps,
+      advancedBpsAtSale: advancedBps,
+      rebateBpsAtSale: rebateBps,
+      installmentInterestBpsAtSale: installmentInterestBps,
+      recordedAt: sale.createdAt.toISOString()
+    };
+    await tx.financeSetting.upsert({
+      where: { key: `sale_memory:${sale.id}` },
+      create: { key: `sale_memory:${sale.id}`, value: JSON.stringify(historicalMemory), changedById: user.id },
+      update: { value: JSON.stringify(historicalMemory), changedById: user.id }
+    });
     await tx.auditLog.create({ data: { actorId: user.id, action: "SALE_REGISTERED", entity: "FinancialSale", entityId: sale.id,
-      summary: `Venda registrada e recebível interno vinculado. Referência ${raw.externalReference}.` } });
-    await emitAccountingBusinessEvent({externalKey:`sale:${sale.id}`,type:"TICKET_SALE_CAPTURED",source:"FINANCE",sourceId:sale.id,eventId:event.id,producerId:event.producerId,amountCents:parts.gross,payload:{producerNetCents:parts.producerNet.toString(),feeCents:parts.fee.toString(),mdrCents:parts.mdr.toString()}},tx);
+      summary: `Venda registrada e recebível interno vinculado com memória histórica. Referência ${raw.externalReference}.` } });
+    await emitAccountingBusinessEvent({
+      externalKey: `sale:${sale.id}`,
+      type: "TICKET_SALE_CAPTURED",
+      source: parts.channel === "POS" ? "POS" : parts.channel === "BILHETERIA" ? "BOX_OFFICE" : "ONLINE",
+      sourceId: sale.id,
+      eventId: event.id,
+      producerId: event.producerId,
+      amountCents: parts.gross,
+      payload: {
+        producerNetCents: parts.producerNet.toString(),
+        feeCents: parts.fee.toString(),
+        mdrCents: parts.mdr.toString(),
+        spreadCents: parts.spreadCents.toString(),
+        advancedCents: parts.advancedCents.toString(),
+        rebateCents: parts.rebateCents.toString(),
+        netSettlementCents: parts.netSettlement.toString(),
+        diskNetCents: parts.diskNet.toString(),
+        memory: historicalMemory
+      }
+    }, tx);
     return sale;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -50,6 +126,7 @@ import { repasseAvailable } from "@/lib/retention-math";
 import { releaseLimit, validateExistingPayout } from "@/lib/release-policy";
 import {
   evaluateEventPolicy,
+  loadEventFeeExtension,
   loadEventLockPolicy,
   loadEventRetentions,
   loadEventTransfers,
@@ -149,7 +226,8 @@ export const eventAvailabilityDTO = (id: string, name: string, a: Awaited<Return
     calculationBase: a.lockEvaluation.calculationBase,
     eligible: a.lockEvaluation.eligible,
     blockingReasons: a.lockEvaluation.blockingReasons,
-    conditionalWarnings: a.lockEvaluation.conditionalWarnings
+    conditionalWarnings: a.lockEvaluation.conditionalWarnings,
+    evaluatedLocks: a.lockEvaluation.evaluatedLocks
   }
 });
 

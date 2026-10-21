@@ -39,6 +39,7 @@ export type ExtendedSaleInput = {
   quantity: number;
   feeMode: "PERCENT_BPS" | "FIXED_PER_TICKET";
   feeValue: bigint;
+  feeExtraFixedCents?: bigint;
   mdrRateBps: number;
   mdrFixedCents: bigint;
   producerPaysMdr: boolean;
