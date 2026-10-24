@@ -1,15 +1,16 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { authorize, fail } from "@/lib/auth";
 import { apiCatch, userInput } from "@/lib/validation";
 import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const { error } = await authorize(request, ["ADMIN"]); if (error) return error;
   const users = await prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, active: true, producer: { select: { name: true } } }, orderBy: { name: "asc" } });
   return NextResponse.json({ items: users });
 }
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const { user, error } = await authorize(request, ["ADMIN"]); if (error || !user) return error!;
   try {
     const input = userInput.parse(await request.json());
@@ -30,3 +31,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: created.id }, { status: 201 });
   } catch (e) { const x = apiCatch(e); return fail(x.message, x.status); }
 }
+
+export const GET=withMonitoring("/api/admin/usuarios",GETHandler);
+export const POST=withMonitoring("/api/admin/usuarios",POSTHandler);

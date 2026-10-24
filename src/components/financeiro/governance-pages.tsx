@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PageHeading, useApi, api, Loading, ErrorNotice, Empty, displayDateTime } from "@/components/financeiro/shared";
 import { currency } from "@/components/financeiro/intelligence";
+import {OperationalMonitor} from "./operational-monitor";
 
 type UserRow = {
   id: string;
@@ -445,6 +446,7 @@ function SettingRow({
 
 type AuditRow = {
   id: string;
+  requestId: string|null;
   createdAt: string;
   action: string;
   entity: string;
@@ -456,6 +458,7 @@ type AuditRow = {
 };
 
 export function AdvancedAuditPage() {
+  const [requestId,setRequestId]=useState("");
   const [filter, setFilter] = useState(""),
     [action, setAction] = useState(""),
     [start, setStart] = useState(""),
@@ -478,6 +481,7 @@ export function AdvancedAuditPage() {
     if (nextAction) p.set("acao", nextAction);
     if (start) p.set("inicio", start);
     if (end) p.set("fim", end);
+    if (requestId.trim()) p.set("requestId",requestId.trim());
     setPage(next);
     setQuery(p.toString());
   }
@@ -549,7 +553,9 @@ export function AdvancedAuditPage() {
         ))}
       </div>
 
+      <OperationalMonitor/>
       <Card className="mb-5 flex flex-wrap items-end gap-3 p-5">
+        <label className="text-xs font-medium">Requisição<Input placeholder="Identificador de referência" value={requestId} onChange={e=>setRequestId(e.target.value)}/></label>
         <label className="text-xs font-medium">
           Ação
           <Input
@@ -661,6 +667,7 @@ export function AdvancedAuditPage() {
               <p>
                 <strong>ID do Log:</strong> <span className="font-mono">{selectedRow.id}</span>
               </p>
+              <p><strong>Requisição:</strong> <span className="break-all font-mono">{selectedRow.requestId??"Registro anterior ou rotina sem contexto"}</span></p>
               <p>
                 <strong>Data/Hora:</strong> {displayDateTime(selectedRow.createdAt)}
               </p>

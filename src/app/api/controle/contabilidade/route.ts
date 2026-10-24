@@ -1,9 +1,10 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import {authorize,fail} from "@/lib/auth";
 import {prisma} from "@/lib/prisma";
 import {accountingAccounts,csvCell} from "@/lib/control-math";
 export const runtime="nodejs";
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
  const {error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error)return error;
  const params=req.nextUrl.searchParams;
  const start=params.get("inicio"),end=params.get("fim");
@@ -28,3 +29,5 @@ export async function GET(req:NextRequest){
    totalCreditsCents:rows.reduce((a,r)=>a+BigInt(r.amountCents),0n).toString(),
    qualification:"Pré-classificação gerencial para revisão do contador. Não gera lançamentos fiscais nem transmissão a ERP externo.",rows});
 }
+
+export const GET=withMonitoring("/api/controle/contabilidade",GETHandler);

@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest,NextResponse } from "next/server";
 import { authorize,fail,isInternal } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -83,9 +84,11 @@ async function detail(tipo:string,id:string,user:SessionUser){
  }
  return fail("Tipo de registro não encontrado.",404);
 }
-export async function GET(request:NextRequest,{params}:{params:Promise<{tipo:string;id:string}>}){
+async function GETHandler(request:NextRequest,{params}:{params:Promise<{tipo:string;id:string}>}){
  const {user,error}=await authorize(request);if(error||!user)return error!;
  const {tipo,id}=await params;
  if(!isRecordType(tipo)||!id||id.length>100||!/^[-_a-zA-Z0-9]+$/.test(id))return fail("Identificador inválido.",400);
  return detail(tipo,id,user);
 }
+
+export const GET=withMonitoring("/api/registros/[tipo]/[id]",GETHandler);

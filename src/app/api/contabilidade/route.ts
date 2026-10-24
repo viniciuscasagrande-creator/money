@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import {NextRequest,NextResponse} from "next/server";
 import {authorize,fail} from "@/lib/auth";
 import {prisma} from "@/lib/prisma";
@@ -5,7 +6,7 @@ import {DEFAULT_TAX_PARAMETERS_BPS} from "@/lib/accounting-core";
 import {accountingReport} from "@/lib/accounting-reports";
 import {apiCatch} from "@/lib/validation";
 export const runtime="nodejs";
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
  const {error,user}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
  const view=req.nextUrl.searchParams.get("visao")||"resumo",month=req.nextUrl.searchParams.get("periodo");
  if(["razao","balancete","dre","passivos"].includes(view)&&(!month||!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)))return fail("Informe período AAAA-MM.");
@@ -27,3 +28,5 @@ export async function GET(req:NextRequest){
   return NextResponse.json({accounts,periods,events,journals,taxRatesBps,taxConfigured:!!taxSetting});
  }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/contabilidade",GETHandler);

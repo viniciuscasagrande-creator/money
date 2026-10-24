@@ -1,16 +1,17 @@
+import {withMonitoring} from "@/lib/observability";
 import {NextRequest,NextResponse} from "next/server";
 import {z} from "zod";
 import {authorize,fail} from "@/lib/auth";
 import {prisma} from "@/lib/prisma";
 import {apiCatch} from "@/lib/validation";
 export const runtime="nodejs";
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
  const {error}=await authorize(req,["ADMIN"]);if(error)return error;
  const grants=await prisma.approvalAuthority.findMany({include:{user:{select:{name:true,email:true}}},orderBy:[{updatedAt:"desc"}]});
  return NextResponse.json({items:grants.map(g=>({id:g.id,userId:g.userId,userName:g.user.name,type:g.type,maxCents:g.maxCents.toString(),active:g.active,updatedAt:g.updatedAt.toISOString()}))});
 }
 const schema=z.object({userId:z.string().min(1),type:z.enum(["REPASSE","ANTECIPACAO"]),maxCents:z.string().regex(/^\d{1,15}$/),active:z.boolean()}).strict();
-export async function POST(req:NextRequest){
+async function POSTHandler(req:NextRequest){
  const {error,user}=await authorize(req,["ADMIN"]);if(error||!user)return error!;
  try{const x=schema.parse(await req.json());const amount=BigInt(x.maxCents);
   const subject=await prisma.user.findUnique({where:{id:x.userId},select:{role:true,active:true}});
@@ -21,3 +22,6 @@ export async function POST(req:NextRequest){
   });return NextResponse.json({ok:true});
  }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/governanca/alcadas",GETHandler);
+export const POST=withMonitoring("/api/governanca/alcadas",POSTHandler);

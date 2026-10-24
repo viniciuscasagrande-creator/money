@@ -12,6 +12,8 @@ test("migração versionada preserva reservas e transferências existentes",asyn
   const sqlite=new DatabaseSync(file);
   sqlite.exec(fs.readFileSync("prisma/migrations/202610200001_baseline_v52/migration.sql","utf8"));
   sqlite.exec(`INSERT INTO Producer(id,name)VALUES('p','Produtor migração');
+    INSERT INTO User(id,name,email,passwordHash,role)VALUES('migration_user','Usuário anterior','migration@synthetic.invalid','hash-sintetico','ADMIN');
+    INSERT INTO AuditLog(id,action,entity,entityId,summary,actorId)VALUES('migration_audit','LEGACY_ACTION','Producer','p','Registro anterior preservado','migration_user');
     INSERT INTO Event(id,name,producerId,status)VALUES('a','Origem','p','ACTIVE'),('b','Destino','p','ACTIVE');
     INSERT INTO EventReserve(id,eventId,purpose,amountCents,createdById)VALUES('r','a','Reserva existente',123,'actor');
     INSERT INTO EventTransfer(id,producerId,originEventId,destinationEventId,amountCents,reason,requestedById)VALUES('t','p','a','b',45,'Transferência existente','actor');
@@ -31,6 +33,7 @@ test("migração versionada preserva reservas e transferências existentes",asyn
     const allocated=await db.reconciliationAllocation.findUniqueOrThrow({where:{requestKey:"legacy:migration_statement"}});
     assert.equal(allocated.amountCents,321n);assert.equal(allocated.ledgerEntryId,"migration_ledger");assert.equal(allocated.actorId,null);
     assert.equal((await db.accountingAccount.findUniqueOrThrow({where:{id:"migration_deduction"}})).type,"DEDUCTION");
-    assert.equal(await db.integrationDelivery.count(),0);assert.equal(await db.integrationJob.count(),0);cli(["migrate","status"]);
+    const oldAudit=await db.auditLog.findUniqueOrThrow({where:{id:"migration_audit"}});assert.equal(oldAudit.requestId,null);assert.equal(oldAudit.summary,"Registro anterior preservado");
+    assert.equal(await db.integrationDelivery.count(),0);assert.equal(await db.integrationJob.count(),0);assert.equal(await db.operationalNotification.count(),0);cli(["migrate","status"]);
   }finally{await db.$disconnect();fs.rmSync(folder,{recursive:true,force:true});}
 });

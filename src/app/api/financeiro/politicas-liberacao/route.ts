@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
@@ -27,7 +28,7 @@ const input = z
   })
   .strict();
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   const { user, error } = await authorize(req, ["ADMIN", "FINANCE_DISK"]);
   if (error || !user) return error!;
   const items = await prisma.eventReleasePolicy.findMany({
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const { user, error } = await authorize(req, ["ADMIN", "FINANCE_DISK"]);
   if (error || !user) return error!;
   try {
@@ -106,3 +107,6 @@ export async function POST(req: NextRequest) {
     return fail(x.message, x.status);
   }
 }
+
+export const GET=withMonitoring("/api/financeiro/politicas-liberacao",GETHandler);
+export const POST=withMonitoring("/api/financeiro/politicas-liberacao",POSTHandler);

@@ -3,6 +3,7 @@ import path from "node:path";
 import {PrismaClient} from "@prisma/client";
 import {exportDatabaseDump} from "../src/lib/backup-data";
 import {backupKey,saveBackup,mirrorBackup,retentionPlan,applyRetention,readBackup} from "../src/lib/operational-backup";
+import {monitorHeartbeat} from "../src/lib/operational-monitor";
 
 const url=process.env.DATABASE_URL||process.env.POSTGRES_PRISMA_URL||process.env.POSTGRES_URL||process.env.NEON_DATABASE_URL;
 const prisma=new PrismaClient({...(url?{datasources:{db:{url}}}:{})});
@@ -30,6 +31,8 @@ async function main(){
   // Retenção só ocorre depois de confirmar a cópia externa. Falhas preservam a cópia local.
   phase="COPIA_EXTERNA";
   const external=mirrorBackup(local,process.env.BACKUP_EXTERNAL_DIR,key);
+  phase="REGISTRO_MONITORAMENTO";
+  await monitorHeartbeat(prisma,"backup");
   phase="RETENCAO";
   const retention=applyRetention(folder,key,keep);
   console.log(JSON.stringify({status:"COPIADO_E_VERIFICADO",local,external,models:dump.modelCount,rows:dump.totalRows,retention,externalRetention:"manual: backup:retention externo",rehearsal:"pendente: executar backup:rehearse"},null,2));

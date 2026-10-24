@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize, fail, originAllowed } from "@/lib/auth";
+import { withMonitoring } from "@/lib/observability";
 import { prisma } from "@/lib/prisma";
 import { apiCatch } from "@/lib/validation";
 import { completePasswordReset, issuePasswordResetToken } from "@/lib/security-mfa";
@@ -12,7 +13,7 @@ const postSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("RESET"), token: z.string().min(16).max(128), newPassword: z.string().min(12).max(128) }).strict()
 ]);
 
-export async function POST(request: NextRequest) {
+export const POST = withMonitoring("/api/auth/recuperar-senha", async function POST(request: NextRequest) {
   if (!originAllowed(request)) return fail("Origem não autorizada.", 403);
   try {
     const input = postSchema.parse(await request.json());
@@ -30,4 +31,4 @@ export async function POST(request: NextRequest) {
     const x = apiCatch(e);
     return fail(x.message, x.status);
   }
-}
+});

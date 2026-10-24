@@ -67,12 +67,13 @@ test("CLI gera cópia cifrada e ensaia restauração real de todos os modelos se
     const user=await db.user.create({data:{email:"restore@synthetic.invalid",name:"Fixture restauração",role:"ADMIN",passwordHash:"HASH-SINTETICO-SEM-CREDENCIAL"}});
     await db.session.create({data:{userId:user.id,tokenHash:"TOKEN-SINTETICO-SEM-CREDENCIAL",expiresAt:new Date(Date.now()+600000)}});
     const cli=(script:string,args:string[]=[],overrides:Record<string,string>={})=>execFileSync(process.execPath,["node_modules/tsx/dist/cli.mjs",`scripts/${script}.ts`,...args],{env:{...env,...overrides},stdio:"pipe",timeout:120000}).toString();
+    const before=await exportDatabaseDump(db);
     const output=JSON.parse(cli("backup-operacional"));assert.equal(output.status,"COPIADO_E_VERIFICADO");
     const encrypted=fs.readFileSync(output.external);assert.ok(!encrypted.includes(Buffer.from(user.passwordHash)));
-    const dump=readBackup(output.external,key);assert.deepEqual(dump.tables,(await exportDatabaseDump(db)).tables);
-    assert.equal(dump.modelCount,39);assert.equal(dump.tables.session.count,1);
+    const dump=readBackup(output.external,key);assert.deepEqual(dump.tables,before.tables);
+    assert.equal(dump.modelCount,Prisma.dmmf.datamodel.models.length);assert.equal(dump.tables.session.count,1);
     const report=JSON.parse(cli("backup-rehearsal",[output.external]));reportFile=report.reportFile;
-    assert.equal(report.status,"APROVADO");assert.equal(report.modelsCompared,39);assert.equal(report.sessions,"invalidadas");
+    assert.equal(report.status,"APROVADO");assert.equal(report.modelsCompared,dump.modelCount);assert.equal(report.sessions,"invalidadas");
     assert.equal(report.sourceSha256,crypto.createHash("sha256").update(encrypted).digest("hex"));
     assert.equal(await db.session.count(),1);
     cli("restore-backup",[output.external,restoredFile,"--isolated"]);

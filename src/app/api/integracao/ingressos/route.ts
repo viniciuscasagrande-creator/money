@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import {NextRequest,NextResponse} from "next/server";
 import {timingSafeEqual,createHash} from "node:crypto";
 import {authorize,fail} from "@/lib/auth";
@@ -10,14 +11,14 @@ function keyValid(value:string|null){
   const configured=process.env.EXTERNAL_TICKETING_API_KEY?.trim();if(!configured||!value)return false;
   const a=Buffer.from(configured),b=Buffer.from(value.trim());return a.length===b.length&&timingSafeEqual(a,b);
 }
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
   const {error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error)return error;
   const key=process.env.EXTERNAL_TICKETING_API_KEY?.trim();
   const [producersCount,eventsCount,receivablesCount]=await Promise.all([prisma.producer.count(),prisma.event.count(),prisma.financialTitle.count({where:{kind:"RECEIVABLE"}})]);
   return NextResponse.json({configured:!!key,maskedKey:key?"SHA-256 "+createHash("sha256").update(key).digest("hex").slice(0,12):null,keyLength:key?.length??0,
     operation:"RECEIVABLE_IMPORT",stats:{producersCount,eventsCount,receivablesCount}});
 }
-export async function POST(req:NextRequest){
+async function POSTHandler(req:NextRequest){
   try {
     let actorId:string;
     if(keyValid(req.headers.get("x-api-key"))){
@@ -37,3 +38,6 @@ export async function POST(req:NextRequest){
     return NextResponse.json(await importTicketingReceivable(input,actorId));
   }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/integracao/ingressos",GETHandler);
+export const POST=withMonitoring("/api/integracao/ingressos",POSTHandler);

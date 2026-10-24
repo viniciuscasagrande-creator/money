@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize, fail, isInternal } from "@/lib/auth";
@@ -8,7 +9,7 @@ import { releaseLimit } from "@/lib/release-policy";
 export const runtime = "nodejs";
 const schema = z.object({ eventId: z.string().min(1), type: z.enum(["REPASSE", "ANTECIPACAO"]),
   amountCents: z.string().regex(/^\d{1,16}$/) }).strict();
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const { user, error } = await authorize(request); if (error || !user) return error!;
   const internal = isInternal(user.role);
   const [payouts, events] = await Promise.all([
@@ -29,9 +30,12 @@ export async function GET(request: NextRequest) {
   }));
   return NextResponse.json({ items: payouts.map(p => payoutDTO(p, internal)), events: balances, role: user.role });
 }
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const { user, error } = await authorize(request); if (error || !user) return error!;
   try { const input = schema.parse(await request.json()); const payout = await createPayout(input, user);
     return NextResponse.json({ id: payout.id }, { status: 201 });
   } catch (e) { const x = apiCatch(e); return fail(x.message, x.status); }
 }
+
+export const GET=withMonitoring("/api/repasses",GETHandler);
+export const POST=withMonitoring("/api/repasses",POSTHandler);

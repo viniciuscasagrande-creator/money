@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { requestEventTransfer, actOnEventTransfer, createEventReserve, changeEventReserve } from "@/lib/event-finance";
@@ -111,7 +112,7 @@ const postSchema = z.discriminatedUnion("kind", [
   transferActionSchema
 ]);
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const { user, error } = await authorize(request);
   if (error || !user) return error!;
   const internal = isInternal(user.role);
@@ -172,7 +173,7 @@ export async function GET(request: NextRequest) {
   });
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const { user, error } = await authorize(request);
   if (error || !user) return error!;
   const internal = isInternal(user.role);
@@ -275,3 +276,6 @@ export async function POST(request: NextRequest) {
     return fail(x.message, x.status);
   }
 }
+
+export const GET=withMonitoring("/api/repasses/travas",GETHandler);
+export const POST=withMonitoring("/api/repasses/travas",POSTHandler);

@@ -1,8 +1,9 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const { error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]); if (error) return error;
   const [gateways, brands, mdrRules, fees, events, extraSettings] = await Promise.all([
     prisma.gateway.findMany({ orderBy: { name: "asc" } }),
@@ -19,3 +20,5 @@ export async function GET(request: NextRequest) {
       mode: f.mode, value: f.value.toString(), extraFixedCents: extraMap.get(f.eventId) ?? "0", producerPaysMdr: f.producerPaysMdr, active: f.active })),
     events: events.map(e => ({ id: e.id, name: e.name, producerName: e.producer.name, producerId: e.producerId, status: e.status })) });
 }
+
+export const GET=withMonitoring("/api/financeiro/catalogo",GETHandler);

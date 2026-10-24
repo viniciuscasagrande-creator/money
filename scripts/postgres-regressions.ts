@@ -8,6 +8,7 @@ import {migrateLegacyFinance} from "../src/lib/legacy-finance-migration";
 import {queueRegressions} from "../tests/helpers/integration-queue-scenarios";
 import {financialCloseRegressions} from "../tests/helpers/financial-close-scenarios";
 import {accountingRegressions} from "../tests/helpers/accounting-scenarios";
+import {monitorConfig,evaluateOperationalMonitor,monitorHeartbeat,dispatchOperationalNotifications} from "../src/lib/operational-monitor";
 
 const url=process.env.DATABASE_URL??"",schema=process.env.HOMOLOG_SCHEMA??"";
 assertOwnedSchema(url,schema);
@@ -42,6 +43,21 @@ async function main(){
     assert.equal((await db.accountingAccount.findUniqueOrThrow({where:{id:"migration_deduction"}})).type,"DEDUCTION");
     return;
   }
+  const monitorActor=await db.user.create({data:{email:"pg-monitor@synthetic.invalid",name:"Monitor PG",passwordHash:"hash-sintetico",role:"ADMIN"}});
+  const monitorJob=await db.integrationJob.create({data:{provider:"synthetic-monitor",externalReference:"pg-monitor",payload:"{}",payloadHash:"synthetic",actorId:monitorActor.id,status:"DEAD"}});
+  const monitorSettings={...monitorConfig({}),requireWorker:true,requireBackup:true};
+  const checks=await Promise.all([evaluateOperationalMonitor(db,monitorSettings),evaluateOperationalMonitor(db,monitorSettings)]);
+  assert.equal(checks.reduce((sum,x)=>sum+x.enqueued,0),3);
+  await monitorHeartbeat(db,"worker");await monitorHeartbeat(db,"backup");
+  await db.integrationJob.update({where:{id:monitorJob.id},data:{status:"SUCCEEDED"}});
+  assert.equal((await evaluateOperationalMonitor(db,monitorSettings)).enqueued,3);
+  const delivered=new Set<string>();
+  const fakeSend:typeof fetch=async(_url,options)=>{const id=new Headers(options?.headers).get("Idempotency-Key")!;assert.ok(!delivered.has(id));delivered.add(id);return new Response(null,{status:204});};
+  const testChannel={url:"https://synthetic.invalid/not-called",token:"SYNTHETIC-NOT-SENT",environment:"pg-test"};
+  await Promise.all([dispatchOperationalNotifications(db,testChannel,20,fakeSend),dispatchOperationalNotifications(db,testChannel,20,fakeSend)]);
+  await dispatchOperationalNotifications(db,testChannel,20,fakeSend);
+  assert.equal(delivered.size,6);assert.equal(await db.operationalNotification.count({where:{status:"SENT"}}),6);
+  steps.push("monitoramento concorrente persiste uma abertura e uma normalização; leases evitam despacho duplicado");
   const {prisma}=await import("../src/lib/prisma");
   try{
     const {registerSale,eventAvailability,createPayout}=await import("../src/lib/operations");

@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { authorize, fail } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -5,7 +6,7 @@ import { apiCatch, accountInput } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const { error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]);
   if (error) return error;
 
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ items });
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const { user, error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]);
   if (error || !user) return error!;
   try {
@@ -101,3 +102,6 @@ export async function POST(request: NextRequest) {
     return fail(x.message, x.status);
   }
 }
+
+export const GET=withMonitoring("/api/contas",GETHandler);
+export const POST=withMonitoring("/api/contas",POSTHandler);

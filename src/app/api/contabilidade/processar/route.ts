@@ -1,3 +1,4 @@
+import { withMonitoring } from "@/lib/observability";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -17,7 +18,7 @@ const batchSchema = z
   })
   .strict();
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   const { error, user } = await authorize(req, ["ADMIN", "FINANCE_DISK"]);
   if (error || !user) return error!;
   const [pendingEvents, activeRules, periods] = await Promise.all([
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const { error, user } = await authorize(req, ["ADMIN"]);
   if (error || !user) return error!;
   try {
@@ -207,3 +208,6 @@ export async function POST(req: NextRequest) {
     return fail(x.message, x.status);
   }
 }
+
+export const GET = withMonitoring("/api/contabilidade/processar", GETHandler);
+export const POST = withMonitoring("/api/contabilidade/processar", POSTHandler);

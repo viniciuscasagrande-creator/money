@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authorize, fail, isInternal } from "@/lib/auth";
+import { withMonitoring } from "@/lib/observability";
 import { prisma } from "@/lib/prisma";
 import { apiCatch } from "@/lib/validation";
 import { buildEventClosingPosition, executeAuditedEventClosing } from "@/lib/event-closing";
@@ -14,7 +15,7 @@ const closeSchema = z.object({
   allowResidualBalanceWithJustification: z.boolean().optional()
 }).strict();
 
-export async function GET(request: NextRequest) {
+export const GET = withMonitoring("/api/eventos/fechamento", async function GET(request: NextRequest) {
   const { user, error } = await authorize(request);
   if (error || !user) return error!;
   const eventId = request.nextUrl.searchParams.get("eventId");
@@ -35,9 +36,9 @@ export async function GET(request: NextRequest) {
   });
   const items = await Promise.all(events.map((e) => buildEventClosingPosition(prisma, e.id)));
   return NextResponse.json({ items });
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withMonitoring("/api/eventos/fechamento", async function POST(request: NextRequest) {
   const { user, error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]);
   if (error || !user) return error!;
   try {
@@ -51,4 +52,4 @@ export async function POST(request: NextRequest) {
     const x = apiCatch(e);
     return fail(x.message, x.status);
   }
-}
+});

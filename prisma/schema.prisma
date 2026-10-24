@@ -190,6 +190,7 @@ model LedgerEntry {
 }
 
 model AuditLog {
+  requestId String?
   id        String @id @default(cuid())
   action    String
   entity    String
@@ -200,6 +201,7 @@ model AuditLog {
   createdAt DateTime @default(now())
   @@index([createdAt])
   @@index([actorId])
+  @@index([requestId])
 }
 
 // Limitação básica de tentativas de login (complementar com WAF/rate-limit na borda).
@@ -756,4 +758,20 @@ model FinancialClose {
   createdAt DateTime @default(now())
   @@unique([bankAccountId, month])
   @@index([bankAccountId, endAt])
+}
+// Pacote 7: caixa de saída operacional, sem dados pessoais ou payload financeiro.
+model OperationalNotification {
+  id String @id @default(cuid())
+  signal String
+  transition String
+  observedCount Int
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  leaseToken String?
+  leaseUntil DateTime?
+  createdAt DateTime @default(now())
+  sentAt DateTime?
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseUntil])
 }

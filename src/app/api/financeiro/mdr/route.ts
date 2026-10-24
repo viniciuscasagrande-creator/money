@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
@@ -7,7 +8,7 @@ import { nonnegativeCents, ruleError } from "@/lib/operations";
 export const runtime = "nodejs";
 const schema = z.object({ gatewayId: z.string().min(1), brandId: z.string().min(1), installments: z.number().int().min(1).max(48),
   rateBps: z.number().int().min(0).max(10000), fixedCents: z.string().regex(/^\d{1,16}$/) }).strict();
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const { user, error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]); if (error || !user) return error!;
   try {
     const input = schema.parse(await request.json());
@@ -25,3 +26,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: rule.id });
   } catch (e) { const x = apiCatch(e); return fail(x.message, x.status); }
 }
+
+export const POST=withMonitoring("/api/financeiro/mdr",POSTHandler);

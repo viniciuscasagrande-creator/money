@@ -1,9 +1,10 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/auth";
 import { hasCapability } from "@/lib/governance";
 import { prisma } from "@/lib/prisma";
 export const runtime="nodejs";
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
  const {error,user}=await authorize(req);if(error||!user)return error!;
  if(!await hasCapability(user,"REPORT_VIEW"))return NextResponse.json({error:"Acesso negado."},{status:403});
  const producerId=user.role==="PRODUCER"?user.producerId!:undefined;
@@ -13,3 +14,5 @@ export async function GET(req:NextRequest){
  ]);
  return NextResponse.json({producers,events});
 }
+
+export const GET=withMonitoring("/api/inteligencia/catalogo",GETHandler);

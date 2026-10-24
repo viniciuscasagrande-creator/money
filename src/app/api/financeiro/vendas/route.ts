@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
+import { withMonitoring } from "@/lib/observability";
 import { prisma } from "@/lib/prisma";
 import { registerSale } from "@/lib/operations";
 import { apiCatch } from "@/lib/validation";
@@ -21,7 +22,7 @@ const schema = z.object({
   installmentInterestBps: z.number().int().min(0).max(5000).optional()
 }).strict();
 
-export async function GET(request: NextRequest) {
+export const GET = withMonitoring("/api/financeiro/vendas", async function GET(request: NextRequest) {
   const { error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]); if (error) return error;
   const items = await prisma.financialSale.findMany({
     include: {
@@ -71,9 +72,9 @@ export async function GET(request: NextRequest) {
       calculationMemory: memoryMap.get(s.id) ?? null
     }))
   });
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withMonitoring("/api/financeiro/vendas", async function POST(request: NextRequest) {
   const { user, error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]); if (error || !user) return error!;
   try {
     const input = schema.parse(await request.json());
@@ -83,4 +84,4 @@ export async function POST(request: NextRequest) {
     const x = apiCatch(e);
     return fail(x.message, x.status);
   }
-}
+});

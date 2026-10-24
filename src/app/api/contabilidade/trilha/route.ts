@@ -1,10 +1,11 @@
+import {withMonitoring} from "@/lib/observability";
 import {NextRequest,NextResponse} from "next/server";
 import {authorize,fail} from "@/lib/auth";
 import {prisma} from "@/lib/prisma";
 import {accountingSource} from "@/lib/accounting-posting";
 import {apiCatch} from "@/lib/validation";
 export const runtime="nodejs";
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
  const {error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error)return error;
  const id=req.nextUrl.searchParams.get("journalId");if(!id||id.length>100)return fail("Informe o lançamento contábil.");
  try{
@@ -20,3 +21,5 @@ export async function GET(req:NextRequest){
   return NextResponse.json(JSON.parse(JSON.stringify(result,(_k,v)=>typeof v==="bigint"?v.toString():v)),{headers:{"Cache-Control":"no-store"}});
  }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/contabilidade/trilha",GETHandler);

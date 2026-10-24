@@ -1,9 +1,10 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { authorize, isInternal } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { eventAvailability, eventAvailabilityDTO } from "@/lib/operations";
 export const runtime = "nodejs";
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const { user, error } = await authorize(request); if (error || !user) return error!;
   if (isInternal(user.role)) {
     const [accounts, entries, allEvents] = await Promise.all([
@@ -28,3 +29,5 @@ export async function GET(request: NextRequest) {
   const items = await Promise.all(events.map(async e => eventAvailabilityDTO(e.id, e.name, await eventAvailability(prisma, e.id))));
   return NextResponse.json({ mode: "PRODUCER_INFORMATIONAL", items });
 }
+
+export const GET=withMonitoring("/api/saldos",GETHandler);

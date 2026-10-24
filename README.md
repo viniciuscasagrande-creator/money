@@ -96,4 +96,5 @@ E:\MONEY
 - [Pacote 4: conciliação e fechamento financeiro](docs/deploy/PACOTE4-CONCILIACAO-FECHAMENTO.md).
 - [Pacote 5: contabilidade e demonstrativos](docs/deploy/PACOTE5-CONTABILIDADE-DEMONSTRATIVOS.md).
 - [Pacote 6: backup e recuperação operacional](docs/deploy/PACOTE6-BACKUP-RECUPERACAO.md).
+- [Pacote 7: monitoramento e auditoria](docs/deploy/PACOTE7-MONITORAMENTO-AUDITORIA.md).
 - [Situação dos próximos pacotes](docs/deploy/PROXIMOS-PACOTES.md).

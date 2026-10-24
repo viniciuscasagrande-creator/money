@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { authorize, fail } from "@/lib/auth";
 import { hasCapability } from "@/lib/governance";
@@ -5,7 +6,7 @@ import { reportData } from "@/lib/report-service";
 import { encodeReportCsv } from "@/lib/report-math";
 import { apiCatch } from "@/lib/validation";
 export const runtime="nodejs";
-export async function GET(request:NextRequest) {
+async function GETHandler(request:NextRequest) {
  const {user,error}=await authorize(request);if(error||!user)return error!;
  if(!await hasCapability(user,"REPORT_VIEW"))return fail("Acesso negado à central de relatórios.",403);
  const q=request.nextUrl.searchParams;
@@ -27,3 +28,5 @@ export async function GET(request:NextRequest) {
   return NextResponse.json(result,{headers:{"Cache-Control":"no-store, private"}});
  }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/inteligencia/relatorios",GETHandler);

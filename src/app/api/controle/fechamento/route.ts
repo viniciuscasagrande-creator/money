@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest,NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize,fail } from "@/lib/auth";
@@ -14,7 +15,7 @@ const schema=z.discriminatedUnion("action",[
   z.object({action:z.literal("CLOSE"),bankAccountId:id,month:z.string(),declaredBalanceCents:z.string().regex(/^-?\d{1,16}$/)}).strict()
 ]);
 const serialize=(value:unknown)=>JSON.parse(JSON.stringify(value,(_k,v)=>typeof v==="bigint"?v.toString():v));
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
   const {error,user}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
   try{
     const bankAccountId=id.parse(req.nextUrl.searchParams.get("bankAccountId")),month=req.nextUrl.searchParams.get("month")??"";
@@ -29,7 +30,7 @@ export async function GET(req:NextRequest){
     return NextResponse.json({...serialize(result),canClose:user.role==="ADMIN"},{headers:{"Cache-Control":"no-store"}});
   }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
-export async function POST(req:NextRequest){
+async function POSTHandler(req:NextRequest){
   const {error,user}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
   try{
     const input=schema.parse(await req.json().catch(()=>null));let result:unknown;
@@ -41,3 +42,6 @@ export async function POST(req:NextRequest){
     return NextResponse.json(serialize(result));
   }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/controle/fechamento",GETHandler);
+export const POST=withMonitoring("/api/controle/fechamento",POSTHandler);

@@ -1,15 +1,16 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { authorize, fail } from "@/lib/auth";
 import { apiCatch, eventInput } from "@/lib/validation";
 import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const { user, error } = await authorize(request); if (error || !user) return error!;
   const events = await prisma.event.findMany({ where: user.role === "PRODUCER" ? { producerId: user.producerId! } : {},
     include: { producer: { select: { name: true } } }, orderBy: { name: "asc" } });
   return NextResponse.json({ items: events.map(e => ({ id: e.id, name: e.name, status: e.status, producerId: e.producerId, producerName: e.producer.name })) });
 }
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const { user, error } = await authorize(request, ["ADMIN"]); if (error || !user) return error!;
   try { const input = eventInput.parse(await request.json());
     const producer = await prisma.producer.findUnique({ where: { id: input.producerId } });
@@ -22,3 +23,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: event.id }, { status: 201 });
   } catch (e) { const x = apiCatch(e); return fail(x.message, x.status); }
 }
+
+export const GET=withMonitoring("/api/admin/eventos",GETHandler);
+export const POST=withMonitoring("/api/admin/eventos",POSTHandler);

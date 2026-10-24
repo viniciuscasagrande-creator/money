@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest,NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize,fail } from "@/lib/auth";
@@ -7,7 +8,7 @@ import { apiCatch } from "@/lib/validation";
 export const runtime="nodejs";
 const schema=z.object({eventId:z.string().min(1),kind:z.enum(["REVENUE","EXPENSE"]),
   category:z.string().trim().min(2).max(80),description:z.string().trim().min(3).max(180),amountCents:z.string().regex(/^\d{1,16}$/)}).strict();
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
  const {error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error)return error;
  const rows=await prisma.budgetLine.findMany({take:200,orderBy:{createdAt:"desc"},include:{event:{select:{name:true}}}});
  const byEvent=new Map<string,{eventId:string;eventName:string;revenue:bigint;expense:bigint}>();
@@ -18,7 +19,7 @@ export async function GET(req:NextRequest){
    summaries:[...byEvent.values()].map(x=>({...x,revenue:x.revenue.toString(),expense:x.expense.toString(),result:(x.revenue-x.expense).toString()})),
    truncated: rows.length===200});
 }
-export async function POST(req:NextRequest){
+async function POSTHandler(req:NextRequest){
  const {user,error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
  try{const a=schema.parse(await req.json());const id=await prisma.$transaction(async tx=>{
    if(!await tx.event.findUnique({where:{id:a.eventId}}))throw new Error("REGRA:Evento não encontrado.");
@@ -27,3 +28,6 @@ export async function POST(req:NextRequest){
    summary:"Previsão orçamentária criada. Não movimenta caixa ou saldo do produtor."}});return r.id;});
  return NextResponse.json({id},{status:201});}catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/controle/orcamentos",GETHandler);
+export const POST=withMonitoring("/api/controle/orcamentos",POSTHandler);

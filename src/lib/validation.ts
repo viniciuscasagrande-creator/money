@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import {recordOperationFailure} from "./observability";
 
 export const titleInput = z.object({
   description: z.string().trim().min(3).max(180),
@@ -44,6 +45,6 @@ export function apiCatch(e: unknown) {
   if (e instanceof Error && e.message.startsWith("REGRA:")) return { message: e.message.slice(6), status: 409 };
   if (e instanceof Error && ["Valor em centavos inválido.", "Valor deve ser maior que zero.", "Data inválida."].includes(e.message)) return { message: e.message, status: 400 };
   // Não expor detalhes de banco, credenciais ou stack traces ao cliente.
-  console.error("Erro de operação financeira", e);
+  recordOperationFailure();
   return { message: "Não foi possível concluir a operação.", status: 500 };
 }

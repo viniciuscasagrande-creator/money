@@ -10,6 +10,7 @@ import {PrismaClient} from "@prisma/client";
 import {exportDatabaseDump,restoreDatabaseDump} from "../src/lib/backup-data";
 import {encodeBackup,decodeBackup} from "../src/lib/operational-backup";
 import {compareRestoredDump} from "../src/lib/backup-verification";
+import {validRequestId} from "../src/lib/observability";
 import {migrateLegacyFinance} from "../src/lib/legacy-finance-migration";
 import bcrypt from "bcryptjs";
 import {changeAccountSecurity,createVerifiedSession,sessionTokenHash,SecurityError} from "../src/lib/account-security";
@@ -203,6 +204,19 @@ test("regressões financeiras com persistência, idempotência e restauração i
       try{
         let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base+"/login")).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}
         assert.ok(ready,logs);
+        const monitored=await fetch(base+"/api/governanca/configuracoes",{method:"POST",headers:{Cookie:`disk_financeiro_session=${tokens.get(admin.id)}`,"Content-Type":"application/json","X-Request-ID":"CLIENT-SPOOF"},body:JSON.stringify({key:"overdueDays",value:1})});
+        assert.equal(monitored.status,200);const monitoredId=monitored.headers.get("X-Request-ID")!;assert.ok(validRequestId(monitoredId));
+        const correlated=await db.auditLog.findFirstOrThrow({where:{action:"FINANCE_SETTING_CHANGED",requestId:monitoredId}});assert.equal(correlated.actorId,admin.id);
+        const filteredAudit=await api(`/api/governanca/auditoria?requestId=${monitoredId}`);assert.equal(filteredAudit.status,200);assert.ok(filteredAudit.data.items.length>0);assert.ok(filteredAudit.data.items.every((row:{requestId:string})=>row.requestId===monitoredId));
+        assert.equal((await api("/api/governanca/auditoria?requestId=invalido")).status,400);
+        for(const user of [owner,finance])assert.equal((await api("/api/sistema/monitoramento","GET",undefined,user)).status,403);
+        const monitor=await api("/api/sistema/monitoramento");assert.equal(monitor.status,200);assert.equal(monitor.data.signals.length,7);assert.equal(monitor.data.lastEvaluationAt,null);assert.equal(monitor.data.evaluationFresh,false);
+        assert.ok(!JSON.stringify(monitor.data).includes("leaseToken"));assert.ok(!JSON.stringify(monitor.data).includes("payloadHash"));
+        const notification=await db.operationalNotification.create({data:{signal:"BACKUP_STALE",transition:"OPEN",observedCount:1,status:"DEAD",attempts:5}});
+        for(const user of [owner,finance])assert.equal((await api("/api/sistema/monitoramento","POST",{action:"RETRY",id:notification.id},user)).status,403);
+        const retryNotice=await api("/api/sistema/monitoramento","POST",{action:"RETRY",id:notification.id});assert.equal(retryNotice.status,200);assert.equal(retryNotice.data.status,"PENDING");
+        assert.equal((await api("/api/sistema/monitoramento","POST",{action:"RETRY",id:notification.id})).status,409);
+        assert.ok(validRequestId((await db.auditLog.findFirstOrThrow({where:{action:"OPERATIONAL_ALERT_REQUEUED",entityId:notification.id}})).requestId!));
         assert.equal((await api(`/api/contabilidade/trilha?journalId=${accountingFixture.journalId}`,"GET",undefined,owner)).status,403);
         const trace=await api(`/api/contabilidade/trilha?journalId=${accountingFixture.journalId}`,"GET",undefined,finance);assert.equal(trace.status,200);assert.equal(trace.data.legacySnapshotUnavailable,false);assert.equal(trace.data.origin.kind,"MANUAL");assert.equal(trace.data.snapshot.rule.version,1);
         assert.equal((await api("/api/contabilidade?visao=razao&periodo=2002-01&page=invalid")).status,400);

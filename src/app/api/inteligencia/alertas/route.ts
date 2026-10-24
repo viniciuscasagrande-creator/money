@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest,NextResponse } from "next/server";
 import { z } from "zod";
 import {authorize,fail} from "@/lib/auth";
@@ -6,7 +7,7 @@ import {prisma} from "@/lib/prisma";
 import {apiCatch} from "@/lib/validation";
 export const runtime="nodejs";
 const daysBefore=(n:number)=>new Date(Date.now()-n*86400000);
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
  const {user,error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
  if(!await hasCapability(user,"ALERT_VIEW"))return fail("Sem permissão para alertas.",403);
  const c=await readSettings();
@@ -27,7 +28,7 @@ export async function GET(req:NextRequest){
  return NextResponse.json({items:data.map(a=>({...a,acknowledged:acknowledged.has(a.key)})),limits:{maxPerCategory:100},mode:"Consulta sob demanda, sem notificações agendadas."},{headers:{"Cache-Control":"no-store"}});
 }
 const input=z.object({key:z.string().regex(/^(TITULO|REPASSE|RISCO|EXTRATO):[\w-]{5,100}$/),acknowledged:z.boolean()}).strict();
-export async function POST(req:NextRequest){
+async function POSTHandler(req:NextRequest){
  const {user,error}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
  if(!await hasCapability(user,"ALERT_VIEW"))return fail("Sem permissão para alertas.",403);
  try{const x=input.parse(await req.json());
@@ -42,3 +43,6 @@ export async function POST(req:NextRequest){
   });return NextResponse.json({ok:true});
  }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/inteligencia/alertas",GETHandler);
+export const POST=withMonitoring("/api/inteligencia/alertas",POSTHandler);

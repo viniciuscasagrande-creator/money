@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { currentRequestId } from "./observability";
 
 function currentDatabaseUrl(): string | undefined {
   const url =
@@ -22,9 +23,19 @@ function getClient(): PrismaClient {
   if (!globalForPrisma.prisma || (url && globalForPrisma.prismaUrl !== url)) {
     globalForPrisma.prisma = new PrismaClient({
       transactionOptions: { maxWait: 5000, timeout: 15000 },
-      log: ["error", "warn"],
+      log: [],
       ...(url ? { datasources: { db: { url } } } : {}),
-    });
+    }).$extends({
+      query: {
+        auditLog: {
+          async create({ args, query }) {
+            const requestId = currentRequestId();
+            if (requestId) args.data = { ...args.data, requestId };
+            return query(args);
+          },
+        },
+      },
+    }) as unknown as PrismaClient;
     globalForPrisma.prismaUrl = url;
   }
   return globalForPrisma.prisma;

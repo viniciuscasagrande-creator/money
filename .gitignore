@@ -22,6 +22,7 @@ backups/
 !.env.example
 !.env.homologacao.example
 !.env.backup.example
+!.env.monitor.example
 *.moneybak
 *.moneybak.partial
 db-dump-*.json

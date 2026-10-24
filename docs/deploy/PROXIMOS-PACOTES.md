@@ -1,6 +1,6 @@
 # Implementação por etapas
 
-Atualizado em 21/10/2026. A ordem abaixo representa entregas incrementais; uma linha planejada não indica funcionalidade implantada.
+Atualizado em 24/10/2026. A ordem abaixo representa entregas incrementais; uma linha planejada não indica funcionalidade implantada.
 
 | Pacote | Situação | Próxima entrega verificável |
 |---|---|---|
@@ -10,7 +10,7 @@ Atualizado em 21/10/2026. A ordem abaixo representa entregas incrementais; uma l
 | 4 — Conciliação e fechamento | Alocações parciais, divergências e fechamento mensal por conta implementados localmente | Validar em preview com extratos representativos e conferir competências antes da produção |
 | 5 — Contabilidade e demonstrativos | Prévia, cópia histórica de regras, trilha de origem e demonstrativos corrigidos localmente | Validar mapeamentos contábeis e fiscais e testar a implantação em preview |
 | 6 — Backup operacional | Criptografia, cópia externa configurável, retenção e ensaio isolado implementados localmente | Configurar destino externo real, custodiar a chave e agendar execução e ensaios no host de operação |
-| 7 — Monitoramento e auditoria | Planejado; auditoria operacional já existe | Identificadores de correlação, logs sem segredos e alertas de falha com canal configurado |
+| 7 — Monitoramento e auditoria | Correlação HTTP/auditoria, logs estruturados, painel administrativo e caixa de saída persistente implementados localmente | Configurar receptor HTTPS, agendar verificador/despachante e ativar coleta de logs e verificação externa de disponibilidade |
 | 8 — Experiência e desempenho | Planejado | Testar fluxos em navegador e celular e medir consultas antes de otimizar ou paginar |
 
 ## Critérios para os próximos pacotes

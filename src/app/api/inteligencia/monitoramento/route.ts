@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
+import { withMonitoring } from "@/lib/observability";
 import { prisma } from "@/lib/prisma";
 import { apiCatch } from "@/lib/validation";
 import { checkOperationalHealth, recordIntegrationIncident } from "@/lib/operational-monitoring";
@@ -20,14 +21,14 @@ const postSchema = z.discriminatedUnion("action", [
   }).strict()
 ]);
 
-export async function GET(request: NextRequest) {
+export const GET = withMonitoring("/api/inteligencia/monitoramento", async function GET(request: NextRequest) {
   const { user, error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]);
   if (error || !user) return error!;
   const report = await checkOperationalHealth(prisma);
   return NextResponse.json(report, { headers: { "Cache-Control": "no-store" } });
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withMonitoring("/api/inteligencia/monitoramento", async function POST(request: NextRequest) {
   const { user, error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]);
   if (error || !user) return error!;
   try {
@@ -66,4 +67,4 @@ export async function POST(request: NextRequest) {
     const x = apiCatch(e);
     return fail(x.message, x.status);
   }
-}
+});

@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -12,7 +13,7 @@ const inputSchema = z.discriminatedUnion("action",[
   z.object({action:z.literal("CHANGE_PASSWORD"),currentPassword:z.string().min(1).max(128),newPassword:z.string().min(12).max(72)}).strict(),
   z.object({action:z.literal("REVOKE_OTHERS"),currentPassword:z.string().min(1).max(128)}).strict()
 ]);
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const {user,error} = await authorize(request); if(error || !user) return error!;
   try {
     const token = (await cookies()).get(cookieName)?.value ?? "";
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({items:sessions.map(s=>({id:s.id,current:s.tokenHash===sessionTokenHash(token),createdAt:s.createdAt,expiresAt:s.expiresAt}))},{headers:{"Cache-Control":"no-store"}});
   } catch(e) {const x=apiCatch(e);return fail(x.message,x.status);}
 }
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const {user,error} = await authorize(request); if(error || !user) return error!;
   try {
     const input = inputSchema.parse(await request.json().catch(()=>null));
@@ -33,3 +34,6 @@ export async function POST(request: NextRequest) {
     const x=apiCatch(e);return fail(x.message,x.status);
   }
 }
+
+export const GET=withMonitoring("/api/auth/security",GETHandler);
+export const POST=withMonitoring("/api/auth/security",POSTHandler);

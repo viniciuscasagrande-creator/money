@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { authorize, isInternal } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -5,7 +6,7 @@ import { titleWhereFor, titleDTO, titleInclude } from "@/lib/finance";
 import { eventAvailability } from "@/lib/operations";
 import { buildSixMonthTrend, sixMonthStart } from "@/lib/dashboard-trend";
 export const runtime = "nodejs";
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const { user, error } = await authorize(request); if (error || !user) return error!;
   const where = titleWhereFor(user);
   // Agregação temporal com valores efetivamente liquidados, sem dados simulados.
@@ -48,3 +49,5 @@ export async function GET(request: NextRequest) {
     informationalOnly: user.role === "PRODUCER"
   });
 }
+
+export const GET=withMonitoring("/api/dashboard",GETHandler);

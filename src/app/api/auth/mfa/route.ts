@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
+import { withMonitoring } from "@/lib/observability";
 import { prisma } from "@/lib/prisma";
 import { apiCatch } from "@/lib/validation";
 import {
@@ -20,7 +21,7 @@ const postSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("DISABLE"), reason: z.string().min(5).max(200), targetUserId: z.string().min(1).optional(), code: z.string().min(6).max(16).optional() }).strict()
 ]);
 
-export async function GET(request: NextRequest) {
+export const GET = withMonitoring("/api/auth/mfa", async function GET(request: NextRequest) {
   const { user, error } = await authorize(request);
   if (error || !user) return error!;
   const myMfa = await getUserMfaConfig(prisma, user.id);
@@ -51,9 +52,9 @@ export async function GET(request: NextRequest) {
     remainingRecoveryCodes: myMfa?.recoveryCodeHashes.length ?? 0,
     ...(user.role === "ADMIN" ? { internalUsersMfa } : {})
   });
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withMonitoring("/api/auth/mfa", async function POST(request: NextRequest) {
   const { user, error } = await authorize(request);
   if (error || !user) return error!;
   try {
@@ -90,4 +91,4 @@ export async function POST(request: NextRequest) {
     const x = apiCatch(e);
     return fail(x.message, x.status);
   }
-}
+});

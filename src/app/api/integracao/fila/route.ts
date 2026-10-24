@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import { NextRequest,NextResponse } from "next/server";
 import { z } from "zod";
 import { authorize,fail } from "@/lib/auth";
@@ -6,7 +7,7 @@ import { apiCatch } from "@/lib/validation";
 import {jobSelection,processIntegrationQueue,retryIntegrationJob} from "@/lib/integration-queue";
 export const runtime="nodejs";
 export const maxDuration=60;
-export async function GET(request:NextRequest){
+async function GETHandler(request:NextRequest){
   const {error}=await authorize(request,["ADMIN","FINANCE_DISK"]);if(error)return error;
   try{
     const page=z.coerce.number().int().min(1).max(1000).parse(request.nextUrl.searchParams.get("page")??1);
@@ -21,7 +22,7 @@ const schema=z.discriminatedUnion("action",[
   z.object({action:z.literal("PROCESS")}).strict(),
   z.object({action:z.literal("RETRY"),id:z.string().min(1).max(100),reason:z.string().trim().min(5).max(200)}).strict()
 ]);
-export async function POST(request:NextRequest){
+async function POSTHandler(request:NextRequest){
   const {user,error}=await authorize(request,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
   try{
     const input=schema.parse(await request.json().catch(()=>null));
@@ -32,3 +33,6 @@ export async function POST(request:NextRequest){
     return NextResponse.json({results:await processIntegrationQueue(prisma,1)});
   }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/integracao/fila",GETHandler);
+export const POST=withMonitoring("/api/integracao/fila",POSTHandler);

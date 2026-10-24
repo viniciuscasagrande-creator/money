@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import {NextRequest,NextResponse} from "next/server";
 import {z} from "zod";
 import {authorize,fail} from "@/lib/auth";
@@ -5,13 +6,13 @@ import {CAPABILITIES,roleAllows} from "@/lib/governance";
 import {prisma} from "@/lib/prisma";
 import {apiCatch} from "@/lib/validation";
 export const runtime="nodejs";
-export async function GET(req:NextRequest){
+async function GETHandler(req:NextRequest){
  const {error}=await authorize(req,["ADMIN"]);if(error)return error;
  const users=await prisma.user.findMany({select:{id:true,name:true,email:true,role:true,active:true,producerId:true,permissionOverrides:{select:{permission:true,allowed:true}},approvalAuthorities:{select:{type:true,maxCents:true,active:true}}},orderBy:{name:"asc"}});
  return NextResponse.json({permissions:CAPABILITIES,items:users.map(u=>({...u,approvalAuthorities:u.approvalAuthorities.map(x=>({...x,maxCents:x.maxCents.toString()}))}))});
 }
 const schema=z.object({userId:z.string().min(1),permission:z.enum(CAPABILITIES),allowed:z.boolean()}).strict();
-export async function POST(req:NextRequest){
+async function POSTHandler(req:NextRequest){
  const {error,user}=await authorize(req,["ADMIN"]);if(error||!user)return error!;
  try{const x=schema.parse(await req.json());
   const subject=await prisma.user.findUnique({where:{id:x.userId},select:{role:true,active:true}});
@@ -24,3 +25,6 @@ export async function POST(req:NextRequest){
   });return NextResponse.json({ok:true});
  }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+
+export const GET=withMonitoring("/api/governanca/usuarios",GETHandler);
+export const POST=withMonitoring("/api/governanca/usuarios",POSTHandler);

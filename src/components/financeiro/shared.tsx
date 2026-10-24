@@ -10,7 +10,11 @@ export type Account = { id: string; name: string; institution: string; balanceCe
 export async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const r = await fetch(url, { cache: "no-store", headers: { "Content-Type": "application/json" }, ...options });
   const body = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(body.error || `A solicitação falhou (${r.status}).`);
+  if (!r.ok) {
+    const requestId=r.headers.get("X-Request-ID");
+    const reference=r.status>=500&&requestId&&/^[a-f0-9-]{36}$/i.test(requestId)?` Referência: ${requestId}.`:"";
+    throw new Error((body.error || `A solicitação falhou (${r.status}).`)+reference);
+  }
   return body as T;
 }
 export function useApi<T>(url: string) {

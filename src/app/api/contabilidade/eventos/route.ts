@@ -1,3 +1,4 @@
+import {withMonitoring} from "@/lib/observability";
 import {Prisma} from "@prisma/client";
 import {NextRequest,NextResponse} from "next/server";
 import {z} from "zod";
@@ -8,7 +9,7 @@ import {storeAccountingBusinessEvent} from "@/lib/accounting-integration";
 import {apiCatch} from "@/lib/validation";
 export const runtime="nodejs";
 const schema=z.object({externalKey:z.string().min(8).max(150),type:z.string().regex(/^[A-Z_]{3,60}$/),source:z.enum(["ONLINE","POS","BOX_OFFICE","FINANCE"]),sourceId:z.string().min(1).max(100),eventId:z.string().nullable().optional(),amountCents:z.string(),occurredAt:z.string().datetime()}).strict();
-export async function POST(req:NextRequest){
+async function POSTHandler(req:NextRequest){
  const {error,user}=await authorize(req,["ADMIN","FINANCE_DISK"]);if(error||!user)return error!;
  try{
   const x=schema.parse(await req.json());let amount:bigint;
@@ -24,3 +25,4 @@ export async function POST(req:NextRequest){
   return NextResponse.json(result,{status:result.duplicate?200:201});
  }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
+export const POST=withMonitoring("/api/contabilidade/eventos",POSTHandler);

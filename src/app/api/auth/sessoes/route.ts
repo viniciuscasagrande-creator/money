@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { authorize, fail } from "@/lib/auth";
+import { withMonitoring } from "@/lib/observability";
 import { prisma } from "@/lib/prisma";
 import { apiCatch } from "@/lib/validation";
 import { listActiveUserSessions, revokeUserSessions } from "@/lib/security-mfa";
@@ -21,15 +22,15 @@ async function getCurrentTokenHash(): Promise<string | undefined> {
   return createHash("sha256").update(cookie).digest("hex");
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withMonitoring("/api/auth/sessoes", async function GET(request: NextRequest) {
   const { user, error } = await authorize(request);
   if (error || !user) return error!;
   const currentHash = await getCurrentTokenHash();
   const sessions = await listActiveUserSessions(prisma, user, currentHash);
   return NextResponse.json({ items: sessions, count: sessions.length });
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withMonitoring("/api/auth/sessoes", async function POST(request: NextRequest) {
   const { user, error } = await authorize(request);
   if (error || !user) return error!;
   try {
@@ -43,4 +44,4 @@ export async function POST(request: NextRequest) {
     const x = apiCatch(e);
     return fail(x.message, x.status);
   }
-}
+});

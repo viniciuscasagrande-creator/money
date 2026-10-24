@@ -1,3 +1,4 @@
+import { withMonitoring, recordOperationFailure } from "@/lib/observability";
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { createHash } from "node:crypto";
@@ -12,7 +13,7 @@ const schema = z.object({
   password: z.string().min(1).max(128),
   mfaCode: z.string().trim().min(6).max(16).optional()
 }).strict();
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   try {
     if (!originAllowed(request)) return fail("Origem não autorizada.", 403);
     const parsed = schema.safeParse(await request.json().catch(() => null));
@@ -54,7 +55,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, role: user.role, mfaEnabled: Boolean(mfaConfig?.enabled), user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err) {
     if (err instanceof SecurityError) return fail(err.message, err.status);
-    console.error("Erro em /api/auth/login:", err);
+    recordOperationFailure();
     return fail("Serviço de banco de dados indisponível ou em atualização. Tente novamente em instantes.", 500);
   }
 }
+
+export const POST = withMonitoring("/api/auth/login", POSTHandler);
