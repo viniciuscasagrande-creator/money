@@ -95,4 +95,5 @@ E:\MONEY
 - [Pacote 3: integrações resilientes](docs/deploy/PACOTE3-INTEGRACOES.md).
 - [Pacote 4: conciliação e fechamento financeiro](docs/deploy/PACOTE4-CONCILIACAO-FECHAMENTO.md).
 - [Pacote 5: contabilidade e demonstrativos](docs/deploy/PACOTE5-CONTABILIDADE-DEMONSTRATIVOS.md).
+- [Pacote 6: backup e recuperação operacional](docs/deploy/PACOTE6-BACKUP-RECUPERACAO.md).
 - [Situação dos próximos pacotes](docs/deploy/PROXIMOS-PACOTES.md).

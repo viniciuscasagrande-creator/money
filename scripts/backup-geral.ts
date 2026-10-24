@@ -17,6 +17,7 @@ function sha256File(filePath: string): string {
 async function exportDatabaseDump() { return snapshotDatabase(prisma); }
 
 async function main() {
+  if(!process.argv.includes("--allow-plaintext"))throw new Error("Backup legado sem criptografia exige --allow-plaintext. Prefira npm run backup.");
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
   const now = new Date();

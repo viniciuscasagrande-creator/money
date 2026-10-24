@@ -8,6 +8,8 @@ import net from "node:net";
 import {randomBytes,createHash,randomUUID} from "node:crypto";
 import {PrismaClient} from "@prisma/client";
 import {exportDatabaseDump,restoreDatabaseDump} from "../src/lib/backup-data";
+import {encodeBackup,decodeBackup} from "../src/lib/operational-backup";
+import {compareRestoredDump} from "../src/lib/backup-verification";
 import {migrateLegacyFinance} from "../src/lib/legacy-finance-migration";
 import bcrypt from "bcryptjs";
 import {changeAccountSecurity,createVerifiedSession,sessionTokenHash,SecurityError} from "../src/lib/account-security";
@@ -258,7 +260,9 @@ test("regressões financeiras com persistência, idempotência e restauração i
       }finally{server.kill();await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once("exit",()=>resolve());});}
     });
     await t.test("snapshot sintético restaura valores, datas, vínculos e identificadores de idempotência",async()=>{
-      const dump=await exportDatabaseDump(db),restoreUrl=`file:${path.join(dir,"restore.db").replaceAll("\\","/")}`;
+      const originalDump=await exportDatabaseDump(db),backupKey=randomBytes(32);
+      const dump=decodeBackup(encodeBackup(originalDump,backupKey),backupKey),restoreUrl=`file:${path.join(dir,"restore.db").replaceAll("\\","/")}`;
+      assert.deepEqual(dump,originalDump);
       fs.writeFileSync(path.join(dir,"restore.db"),"",{flag:"wx"});
       execFileSync(process.execPath,["node_modules/prisma/build/index.js","db","push","--skip-generate"],{env:{...process.env,DATABASE_URL:restoreUrl},stdio:"pipe"});
       const restored=new PrismaClient({datasources:{db:{url:restoreUrl}}});
@@ -268,6 +272,7 @@ test("regressões financeiras com persistência, idempotência e restauração i
         assert.equal((await restored.bankAccount.findUniqueOrThrow({where:{id:account.id}})).balanceCents,49900n);
         assert.equal(await restored.integrationDelivery.count(),dump.tables.integrationDelivery.count);
         const again=await exportDatabaseDump(restored);
+        assert.equal(compareRestoredDump(dump,again,true).rowsCompared,dump.totalRows);
         for(const key of Object.keys(dump.tables))assert.deepEqual(again.tables[key].rows.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))),dump.tables[key].rows.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))),key);
         await assert.rejects(restoreDatabaseDump(restored,dump,true),/banco vazio/);
       }finally{await restored.$disconnect();}

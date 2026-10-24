@@ -21,6 +21,9 @@ backups/
 .env*
 !.env.example
 !.env.homologacao.example
+!.env.backup.example
+*.moneybak
+*.moneybak.partial
 db-dump-*.json
 manifesto-backup-*.json
 *.bundle
