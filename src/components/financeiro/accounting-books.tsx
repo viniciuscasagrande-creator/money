@@ -1,6 +1,7 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
-import { FolderTree, Plus, RefreshCw, ShieldCheck, Layers3, Calculator } from "lucide-react";
+import { ArrowLeft, FolderTree, Grid2X2, Plus, RefreshCw, ShieldCheck, Layers3, Calculator } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +43,7 @@ function fmtBRLCents(v: unknown): string {
   }
 }
 
-export function AccountingBooks() {
+export function AccountingBooks({ initialTab }: { initialTab?: string } = {}) {
   const [trailId,setTrailId]=useState<string|null>(null);
   const [journalPage,setJournalPage]=useState(1);
   const [closeTarget,setCloseTarget]=useState<Item|null>(null),[closeReviewed,setCloseReviewed]=useState(false);
@@ -98,15 +99,18 @@ export function AccountingBooks() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const aba = params.get("aba");
+    const aba = initialTab ?? params.get("aba");
     if (aba === "plano") void load("contas");
     else if (aba === "razao") void load("razao");
     else if (aba === "demonstrativos") void load("balancete");
+    else if (aba === "dre") void load("dre");
+    else if (aba === "passivos") void load("passivos");
     else if (aba === "regras") void load("periodos");
     else if (aba === "motor") void load("eventos");
+    else if (aba === "resumo") void load("resumo");
     else void load("contas");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialTab]);
 
   async function seedStandardChart() {
     setLoading(true);
@@ -286,11 +290,27 @@ export function AccountingBooks() {
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#e7e2e0] bg-white px-3 py-1.5 text-xs font-semibold text-[#3f3c42] shadow-sm transition hover:border-[#e3574f] hover:bg-[#fff8f6] hover:text-[#c94e46]"
+        >
+          <ArrowLeft size={14} />
+          <span>Voltar ao menu</span>
+        </Link>
+        <Link
+          href="/modulos"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#ece8e6] bg-[#faf8f7] px-3 py-1.5 text-xs font-medium text-[#6f6a6e] transition hover:bg-[#f2eeec] hover:text-[#29262b]"
+        >
+          <Grid2X2 size={13} />
+          <span>Central de módulos</span>
+        </Link>
+      </div>
       <header className="rounded-2xl bg-slate-900 p-6 text-white">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-[#ff938b]">
-              SOUL v5.1 · Controladoria, Plano de Contas & Motor Contábil (M1 a M10)
+              SOUL v5.2 · Controladoria, Plano de Contas & Motor Contábil (M1 a M10)
             </p>
             <h1 className="mt-1 text-2xl font-semibold">Plano de Contas Hierárquico, Livro Razão, Balancete & DRE</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-300">

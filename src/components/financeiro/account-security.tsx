@@ -1,6 +1,8 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowLeft, Grid2X2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -34,6 +36,22 @@ export function AccountSecurityPage() {
   }
   const date=(value:string)=>new Date(value).toLocaleString("pt-BR");
   return <div className="mx-auto w-full max-w-3xl space-y-6 p-4 sm:p-6">
+    <div className="flex flex-wrap items-center gap-2">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1.5 rounded-xl border border-[#e7e2e0] bg-white px-3 py-1.5 text-xs font-semibold text-[#3f3c42] shadow-sm transition hover:border-[#e3574f] hover:bg-[#fff8f6] hover:text-[#c94e46]"
+      >
+        <ArrowLeft size={14} />
+        <span>Voltar ao menu</span>
+      </Link>
+      <Link
+        href="/modulos"
+        className="inline-flex items-center gap-1.5 rounded-xl border border-[#ece8e6] bg-[#faf8f7] px-3 py-1.5 text-xs font-medium text-[#6f6a6e] transition hover:bg-[#f2eeec] hover:text-[#29262b]"
+      >
+        <Grid2X2 size={13} />
+        <span>Central de módulos</span>
+      </Link>
+    </div>
     <div><h1 className="text-2xl font-bold">Segurança da minha conta</h1><p className="mt-2 text-sm text-muted-foreground">Atualize sua senha e encerre acessos de outros dispositivos.</p></div>
     {error&&<p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {message&&<p role="status" className="rounded-xl border p-3 text-sm">{message}</p>}

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, BarChart3, Bell,
+  ArrowDownToLine, ArrowLeft, ArrowLeftRight, ArrowUpFromLine, BarChart3, Bell,
   BookOpenCheck, CalendarRange, ChevronDown, ChevronLeft, ChevronRight,
   ClipboardList, CreditCard, FileSignature, FileSpreadsheet, GitCompareArrows,
   Grid2X2, Landmark, Layers3, LayoutDashboard, LogOut, Menu, Percent, PlugZap, Receipt, Search,
@@ -63,7 +63,7 @@ const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(p =>
 function Brand({ compact = false }: { compact?: boolean }) {
   return <div className="flex min-w-0 items-center gap-3">
     <div className="fintech-brand-mark" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3.5 16.5 9 7.5l4.4 6L20.5 4.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M15.5 4.5h5v5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-    {!compact && <div className="min-w-0"><p className="flex items-center gap-1.5 text-[17px] font-bold tracking-[-.045em] text-white"><span>SOUL<span className="text-[#ff746b]">.</span></span><span className="rounded bg-[#ff746b]/20 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-[#ff938b]">v5.1</span></p><p className="text-[9px] font-semibold uppercase tracking-[.16em] text-[#929398]">ERP OPERACIONAL</p></div>}
+    {!compact && <div className="min-w-0"><p className="flex items-center gap-1.5 text-[17px] font-bold tracking-[-.045em] text-white"><span>SOUL<span className="text-[#ff746b]">.</span></span><span className="rounded bg-[#ff746b]/20 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-[#ff938b]">v5.2</span></p><p className="text-[9px] font-semibold uppercase tracking-[.16em] text-[#929398]">ERP OPERACIONAL</p></div>}
   </div>;
 }
 
@@ -164,9 +164,19 @@ export function WorkspaceShell({ user, children, capabilities }: { user: User; c
     <div className="min-w-0 flex-1">
       <header className="fintech-topbar sticky top-0 z-30 flex h-[82px] items-center gap-3 px-4 sm:px-7 xl:px-10">
         <button type="button" onClick={() => setMobile(true)} className="fintech-icon-button lg:hidden" aria-label="Abrir menu"><Menu size={21}/></button>
+        {pathname !== "/dashboard" && (
+          <Link
+            href="/dashboard"
+            className="hidden items-center gap-1.5 rounded-xl border border-[#e7e2e0] bg-white px-3 py-2 text-xs font-semibold text-[#3f3c42] hover:border-[#e3574f] hover:bg-[#fff8f6] hover:text-[#c94e46] sm:inline-flex"
+            title="Voltar ao menu principal (Dashboard)"
+          >
+            <ArrowLeft size={15} className="text-[#e3574f]" />
+            <span>Voltar ao menu</span>
+          </Link>
+        )}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[11px] font-medium text-[#969399]"><span className="hidden sm:inline">Workspace financeiro</span><ChevronRight size={12} className="hidden sm:block"/><span className="truncate text-[#48474c]">{selected?.label ?? "Financeiro Operacional"}</span></div>
-          <div className="mt-0.5 hidden text-[12px] font-medium text-[#807f85] sm:block">{user.role === "PRODUCER" ? "Área exclusiva do produtor" : "SOUL v5.1 · Operação interna homologada"}</div>
+          <div className="flex items-center gap-2 text-[11px] font-medium text-[#969399]"><Link href="/dashboard" className="hidden hover:text-[#e3574f] sm:inline">Workspace financeiro</Link><ChevronRight size={12} className="hidden sm:block"/><span className="truncate text-[#48474c]">{selected?.label ?? "Financeiro Operacional"}</span></div>
+          <div className="mt-0.5 hidden text-[12px] font-medium text-[#807f85] sm:block">{user.role === "PRODUCER" ? "Área exclusiva do produtor" : "SOUL v5.2 · Operação interna homologada"}</div>
         </div>
         {user.role !== "PRODUCER" && (
           <button
@@ -191,7 +201,7 @@ export function WorkspaceShell({ user, children, capabilities }: { user: User; c
         </div>
       </header>
       <main className="fintech-main mx-auto max-w-[1660px] px-4 pb-14 pt-7 sm:px-7 sm:pt-9 xl:px-10">{children}</main>
-      <footer className="mx-auto flex max-w-[1660px] flex-wrap items-center justify-between gap-2 px-4 pb-6 text-[11px] text-[#a5a1a1] sm:px-7 xl:px-10"><span>SOUL Financeiro v5.1 · Recuperação Operacional & Motor Contábil</span><span>Dados reais persistidos no PostgreSQL conforme suas permissões</span></footer>
+      <footer className="mx-auto flex max-w-[1660px] flex-wrap items-center justify-between gap-2 px-4 pb-6 text-[11px] text-[#a5a1a1] sm:px-7 xl:px-10"><span>SOUL Financeiro v5.2 · Recuperação Operacional & Motor Contábil</span><span>Dados reais persistidos no PostgreSQL conforme suas permissões</span></footer>
     </div>
 
     {searchOpen && <div role="presentation" className="fixed inset-0 z-[100] flex justify-center bg-[#1e1b22]/65 px-3 pt-[14vh] backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) setSearchOpen(false); }}>

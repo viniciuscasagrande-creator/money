@@ -22,9 +22,14 @@ test("mapeamento específico de submenus críticos (Plano de Contas, Orçamento,
   assert.equal(resolveSubmenuOperationalRoute("13.01").operationalHref, "/contabilidade/livros?aba=plano");
   assert.equal(resolveSubmenuOperationalRoute("13.03").operationalHref, "/contabilidade/livros?aba=razao");
   assert.equal(resolveSubmenuOperationalRoute("13.06").operationalHref, "/contabilidade/livros?aba=demonstrativos");
+  assert.equal(resolveSubmenuOperationalRoute("13.08").operationalHref, "/contabilidade/livros?aba=regras");
+  assert.equal(resolveSubmenuOperationalRoute("13.09").operationalHref, "/contabilidade/livros?aba=demonstrativos");
+  assert.equal(resolveSubmenuOperationalRoute("13.10").operationalHref, "/contabilidade");
+  assert.equal(resolveSubmenuOperationalRoute("13.13").operationalHref, "/contabilidade/livros?aba=passivos");
   assert.equal(resolveSubmenuOperationalRoute("11.01").operationalHref, "/planejamento");
   assert.equal(resolveSubmenuOperationalRoute("10.01").operationalHref, "/ocorrencias");
   assert.equal(resolveSubmenuOperationalRoute("06.03").operationalHref, "/repasses");
+  assert.equal(resolveSubmenuOperationalRoute("06.13").operationalHref, "/retencoes");
   assert.equal(resolveSubmenuOperationalRoute("07.09").operationalHref, "/integracao");
   assert.equal(resolveSubmenuOperationalRoute("17.01").operationalHref, "/cadastros");
 });

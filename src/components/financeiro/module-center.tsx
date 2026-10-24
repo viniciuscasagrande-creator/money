@@ -19,33 +19,65 @@ export function ModuleCenter() {
   const [search, setSearch] = useState(""),
     [chosen, setChosen] = useState<FinancePackage | 0>(0);
 
-  const extraInternalModules: FinanceModule[] =
-    data && data.profile !== "PRODUCER"
-      ? [
-          {
-            key: "contabilidade-livros",
-            label: "Plano de Contas, Razão, Balancete e DRE",
-            href: "/contabilidade/livros",
-            package: 3,
-            endpoint: "/api/contabilidade",
-            description:
-              "Árvore hierárquica de 28 contas, partidas dobradas, eventos de negócio, balancete (D=C) e DRE.",
-            internal: true,
-          },
-          {
-            key: "integracao-ingressos",
-            label: "Conector API de Ingressos & Webhooks",
-            href: "/integracao",
-            package: 2,
-            endpoint: "/api/integracao/ingressos",
-            description:
-              "Recepção idempotente de vendas Online, POS PagSeguro e Bilheteria com split automático.",
-            internal: true,
-          },
-        ]
-      : [];
+  const extraModules: FinanceModule[] = data
+    ? [
+        ...(data.profile !== "PRODUCER"
+          ? ([
+              {
+                key: "politicas-repasses",
+                label: "Faixas e Travas Progressivas de Repasses",
+                href: "/politicas-repasses",
+                package: 2,
+                endpoint: "/api/financeiro/politicas-liberacao",
+                description:
+                  "Capacidade comercial de ingressos, gatilhos de vendas (%) e tetos cumulativos de repasse por evento.",
+                internal: true,
+              },
+              {
+                key: "retencoes-evento",
+                label: "Retenções Obrigatórias (ECAD / Locação)",
+                href: "/retencoes",
+                package: 2,
+                endpoint: "/api/financeiro/retencoes",
+                description:
+                  "Reservas contratuais obrigatórias por evento em percentual (%) ou valor fixo (R$).",
+                internal: true,
+              },
+              {
+                key: "contabilidade-livros",
+                label: "Plano de Contas, Razão, Balancete e DRE",
+                href: "/contabilidade/livros",
+                package: 3,
+                endpoint: "/api/contabilidade",
+                description:
+                  "Árvore hierárquica de 28 contas, partidas dobradas, eventos de negócio, balancete (D=C) e DRE.",
+                internal: true,
+              },
+              {
+                key: "integracao-ingressos",
+                label: "Conector API de Ingressos & Webhooks",
+                href: "/integracao",
+                package: 2,
+                endpoint: "/api/integracao/ingressos",
+                description:
+                  "Recepção idempotente de vendas Online, POS PagSeguro e Bilheteria com split automático.",
+                internal: true,
+              },
+            ] satisfies FinanceModule[])
+          : []),
+        {
+          key: "transferencias-eventos",
+          label: "Transferências entre Eventos",
+          href: "/transferencias",
+          package: 2,
+          endpoint: "/api/financeiro/transferencias",
+          description:
+            "Transferência interna auditada de posições entre eventos do mesmo produtor.",
+        },
+      ]
+    : [];
 
-  const allItems = useMemo(() => [...(data?.items ?? []), ...extraInternalModules], [data, extraInternalModules]);
+  const allItems = useMemo(() => [...(data?.items ?? []), ...extraModules], [data, extraModules]);
 
   const modules = useMemo(
     () =>
@@ -62,7 +94,7 @@ export function ModuleCenter() {
   return (
     <>
       <PageHeading
-        eyebrow="Navegação Operacional · SOUL v5.1"
+        eyebrow="Navegação Operacional · SOUL v5.2"
         title="Central de Módulos Operacionais"
         subtitle="Cada card abaixo abre diretamente a tela operacional homologada correspondente (sem telas genéricas de especificação), vinculada ao banco PostgreSQL e auditada."
       />

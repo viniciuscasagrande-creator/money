@@ -35,7 +35,14 @@ export function resolveOperationalRouteByCode(
       actionLabel: "Registrar venda e calcular split por evento",
     };
   }
-  if (submenuCode === "07.09" || submenuCode === "17.09") {
+  if (submenuCode === "06.13") {
+    return {
+      operationalHref: "/retencoes",
+      moduleName: "Retenções Obrigatórias e Reservas de Garantia",
+      actionLabel: "Gerenciar reservas contratuais e garantias por evento",
+    };
+  }
+  if (submenuCode === "07.09" || submenuCode === "17.08" || submenuCode === "17.09") {
     return {
       operationalHref: "/integracao",
       moduleName: "Conector API de Ingressos e Webhooks",
@@ -66,18 +73,32 @@ export function resolveOperationalRouteByCode(
         actionLabel: "Consultar razão contábil e lançar partidas",
       };
     }
-    if (submenuCode === "13.05" || submenuCode === "13.06") {
+    if (submenuCode === "13.05" || submenuCode === "13.06" || submenuCode === "13.09") {
       return {
         operationalHref: "/contabilidade/livros?aba=demonstrativos",
         moduleName: "Balancete de Verificação, DRE e Passivos",
         actionLabel: "Consultar Balancete, DRE e obrigações por evento",
       };
     }
-    if (submenuCode === "13.07") {
+    if (submenuCode === "13.07" || submenuCode === "13.08") {
       return {
         operationalHref: "/contabilidade/livros?aba=regras",
         moduleName: "Períodos Contábeis, Fechamento e Exportação CSV",
         actionLabel: "Gerenciar períodos contábeis e exportar CSV",
+      };
+    }
+    if (submenuCode === "13.10") {
+      return {
+        operationalHref: "/contabilidade",
+        moduleName: "Pré-exportação Contábil do Razão Bancário (CSV)",
+        actionLabel: "Consultar razão bancário e exportar lote CSV",
+      };
+    }
+    if (submenuCode === "13.13") {
+      return {
+        operationalHref: "/contabilidade/livros?aba=passivos",
+        moduleName: "Passivos de Produtores e Retenções por Evento",
+        actionLabel: "Conferir obrigações contábeis e retenções por evento",
       };
     }
     return {

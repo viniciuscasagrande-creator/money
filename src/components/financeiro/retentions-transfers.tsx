@@ -1,6 +1,7 @@
 "use client";
 import {useState,type FormEvent} from "react";
 import Link from "next/link";
+import {useListQuery,ListFilters,ListPagination,type PageMeta} from "./paged-list";
 import {Card} from "@/components/ui/card";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
@@ -15,11 +16,14 @@ type Transfer={id:string;origin:string;destination:string;status:string;amountCe
 type Permission={producerId:string;name:string;enabled:boolean;maxPerTransferCents:string};
 type ProducerOption={id:string;name:string};
 
-export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
+export function RetentionsTransfers({mode,role}:{mode:"retencoes"|"transferencias";role?:string}){
  const payouts=useApi<{events:EventItem[];role:string}>("/api/repasses");
- const reserves=useApi<{items:Res[]}>("/api/financeiro/retencoes");
- const transfers=useApi<{items:Transfer[]}>("/api/financeiro/transferencias");
- const permissions=useApi<{items:Permission[];producers?:ProducerOption[]}>("/api/financeiro/permissoes-transferencia");
+ const effectiveRole=role||payouts.data?.role;
+ const internal=effectiveRole?effectiveRole!=="PRODUCER":false;
+ const reserves=useApi<{items:Res[]}>(internal?"/api/financeiro/retencoes":"");
+ const list=useListQuery();
+ const transfers=useApi<PageMeta & {items:Transfer[];summary:{pendingCount:number;pendingCents:string;executedCount:number;executedCents:string}}>(`/api/financeiro/transferencias?${list.params}`);
+ const permissions=useApi<{items:Permission[];producers?:ProducerOption[]}>(internal?"/api/financeiro/permissoes-transferencia":"");
  const [event,setEvent]=useState(""),[dest,setDest]=useState(""),[purpose,setPurpose]=useState(""),[amount,setAmount]=useState(""),[reason,setReason]=useState("");
  const [retMode,setRetMode]=useState<"FIXED"|"PERCENT">("FIXED"),[retPct,setRetPct]=useState("5,00");
  const [producer,setProducer]=useState(""),[limit,setLimit]=useState(""),[enabled,setEnabled]=useState(false);
@@ -27,7 +31,6 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
  const [justificationModal,setJustificationModal]=useState<{kind:"RELEASE_RESERVE"|"REJECT_TRANSFER";id:string;label:string}|null>(null);
  const [modalReason,setModalReason]=useState("");
 
- const internal=payouts.data?.role!=="PRODUCER";
  const events=payouts.data?.events||[];
  const origins=events.filter(e=>e.id!==dest);
  const fromEvents=events.map(e=>({id:e.producerId,name:e.producerName||e.name}));
@@ -38,9 +41,11 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
 
  const reserveItems=reserves.data?.items||[];
  const transferItems=transfers.data?.items||[];
- const activeReserveSum=reserveItems.filter(r=>r.status==="ACTIVE").reduce((s,r)=>s+BigInt(r.amountCents||"0"),0n);
- const activeTransferSum=transferItems.filter(t=>t.status==="REQUESTED"||t.status==="APPROVED"||t.status==="PRODUCER_ACCEPTED").reduce((s,t)=>s+BigInt(t.amountCents||"0"),0n);
- const executedTransferSum=transferItems.filter(t=>t.status==="EXECUTED").reduce((s,t)=>s+BigInt(t.amountCents||"0"),0n);
+ const activeReserveSum=internal
+  ? reserveItems.filter(r=>r.status==="ACTIVE").reduce((s,r)=>s+BigInt(r.amountCents||"0"),0n)
+  : events.reduce((s,e)=>s+BigInt(e.reserveCents||"0"),0n);
+ const activeTransferSum=transfers.data?.summary.pendingCents??"0";
+ const executedTransferSum=transfers.data?.summary.executedCents??"0";
  const totalEligibleSum=events.reduce((s,e)=>s+BigInt(e.repasseCents||"0"),0n);
 
  function selectProducerForPolicy(prodId:string){
@@ -97,12 +102,12 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
  <PageHeading eyebrow="Financeiro · Controle por evento" title={mode==="retencoes"?"Retenções Obrigatórias":"Transferências entre Eventos"}
  subtitle={mode==="retencoes"?"Proteja compromissos de ECAD, aluguel, tributos e custos do evento (em % ou valor fixo R$); somente o Financeiro pode alterar reservas.":"Transfira posições internamente entre eventos do mesmo produtor, com reserva de origem, permissão e aprovação interna."}
  action={<div className="flex flex-wrap gap-2">
-  <Link href={mode==="retencoes"?"/transferencias":"/retencoes"} className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50">{mode==="retencoes"?"Ir para Transferências entre Eventos":"Ir para Retenções Obrigatórias"}</Link>
+  {(mode==="retencoes"||internal)&&<Link href={mode==="retencoes"?"/transferencias":"/retencoes"} className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50">{mode==="retencoes"?"Ir para Transferências entre Eventos":"Ir para Retenções Obrigatórias"}</Link>}
   {internal&&<Link href="/politicas-repasses" className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50">Faixas e Travas de Repasses</Link>}
   <Link href="/repasses" className="inline-flex h-10 items-center rounded-xl bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800">Voltar para Repasses & Central de 20 Travas</Link>
  </div>}/>
 
- <div className="mb-5 grid gap-4 md:grid-cols-4">
+ {(payouts.data&&(!internal||reserves.data)&&transfers.data)&&<div className="mb-5 grid gap-4 md:grid-cols-4">
   <Card className="p-4">
    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Saldo Elegível Consolidado</p>
    <p className="mt-2 font-mono text-xl font-semibold text-emerald-700">{fmtBRL(totalEligibleSum.toString())}</p>
@@ -116,17 +121,19 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
   <Card className="p-4">
    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Transferências em Fila</p>
    <p className="mt-2 font-mono text-xl font-semibold text-indigo-700">{fmtBRL(activeTransferSum.toString())}</p>
-   <p className="mt-1 text-xs text-slate-500">{transferItems.filter(t=>t.status==="REQUESTED"||t.status==="APPROVED"||t.status==="PRODUCER_ACCEPTED").length} pendente(s)/aprovada(s)</p>
+   <p className="mt-1 text-xs text-slate-500">{transfers.data?.summary.pendingCount??"—"} pendente(s)/aprovada(s)</p>
   </Card>
   <Card className="p-4">
    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Transferências Executadas</p>
    <p className="mt-2 font-mono text-xl font-semibold text-slate-900">{fmtBRL(executedTransferSum.toString())}</p>
-   <p className="mt-1 text-xs text-slate-500">{transferItems.filter(t=>t.status==="EXECUTED").length} concluída(s)</p>
+   <p className="mt-1 text-xs text-slate-500">{transfers.data?.summary.executedCount??"—"} concluída(s)</p>
   </Card>
- </div>
+ </div>}
 
  {message&&<div aria-live="polite" className="mb-4"><ErrorNotice message={message}/></div>}
  {payouts.error&&<ErrorNotice message={payouts.error} retry={payouts.reload}/>}
+ {transfers.error&&<ErrorNotice message={transfers.error} retry={transfers.reload}/>}
+ {reserves.error&&<ErrorNotice message={reserves.error} retry={reserves.reload}/>}
  {(payouts.loading||transfers.loading)&&<Loading/>}
  <div className="grid gap-4 lg:grid-cols-2">
   <Card className="p-5"><h2 className="mb-4 text-lg font-semibold">{mode==="retencoes"?"Nova retenção (% ou R$)":"Solicitar transferência"}</h2>
@@ -145,9 +152,11 @@ export function RetentionsTransfers({mode}:{mode:"retencoes"|"transferencias"}){
   <Card className="p-5"><h2 className="mb-4 text-lg font-semibold">Posição por evento</h2>
    <div className="space-y-3">{events.length===0?<p className="text-sm text-slate-500">Não há eventos vinculados.</p>:events.map(e=><div key={e.id} className="rounded-lg border p-3"><div className="flex items-center justify-between gap-2"><p className="font-medium">{e.name}</p>{e.producerName&&<Badge tone="neutral">{e.producerName}</Badge>}</div><p className="mt-1 text-xs text-slate-500">Elegível: <strong className="text-emerald-700">{fmtBRL(e.repasseCents)}</strong> · Retido: <strong className="text-amber-700">{fmtBRL(e.reserveCents||"0")}</strong> · Transf. reservada: <strong className="text-indigo-700">{fmtBRL(e.transferReservedCents||"0")}</strong></p></div>)}</div></Card>
  </div>
+ {mode==="transferencias"&&<><ListFilters state={list} count={transfers.data?.count} label="Buscar origem, destino, justificativa ou valor exato em centavos" statuses={[["ALL","Todas"],["REQUESTED","Solicitada"],["APPROVED","Aprovada"],["PRODUCER_ACCEPTED","Aceita pelo produtor"],["EXECUTED","Executada"],["REJECTED","Reprovada"],["REVERSED","Revertida"]]}/><p className="text-xs text-slate-500">Indicadores de transferências consideram todos os resultados dos filtros. Saldos e retenções por evento independem desses filtros.</p></>}
  <Card className="mt-5 p-5"><h2 className="mb-4 text-lg font-semibold">Histórico</h2>
- {mode==="retencoes"?(reserveItems.length===0?<p className="text-sm text-slate-500">Nenhuma retenção registrada.</p>:reserveItems.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-2 border-b py-3 text-sm"><span><strong>{r.eventName}</strong> ({r.producerName}) · {r.purpose} · <span className="font-mono font-semibold">{fmtBRL(r.amountCents)}</span> · <Badge tone={r.status==="ACTIVE"?"amber":"green"}>{r.status}</Badge></span>{internal&&r.status==="ACTIVE"&&<Button variant="outline" disabled={busy} onClick={()=>{setModalReason("");setJustificationModal({kind:"RELEASE_RESERVE",id:r.id,label:`${r.eventName} · ${r.purpose} (${fmtBRL(r.amountCents)})`});}}>Liberar com justificativa</Button>}</div>)):(transferItems.length===0?<p className="text-sm text-slate-500">Nenhuma transferência solicitada.</p>:transferItems.map(t=><div key={t.id} className="flex flex-wrap items-center justify-between gap-2 border-b py-3 text-sm"><span><strong>{t.origin}</strong> → <strong>{t.destination}</strong> · <span className="font-mono font-semibold">{fmtBRL(t.amountCents)}</span> · <Badge tone={t.status==="EXECUTED"?"green":t.status==="REJECTED"?"red":"amber"}>{t.status}</Badge> · <span className="text-xs text-slate-500">{t.reason}</span></span><div className="flex flex-wrap gap-2">{internal&&t.status==="REQUESTED"&&<Button disabled={busy} onClick={()=>change(`/api/financeiro/transferencias/${t.id}`,{action:"APPROVE"})}>Aprovar</Button>}{!internal&&t.status==="APPROVED"&&<Button disabled={busy} onClick={()=>change(`/api/financeiro/transferencias/${t.id}`,{action:"PRODUCER_ACCEPT"})}>Confirmar aceite</Button>}{internal&&t.status==="PRODUCER_ACCEPTED"&&<Button disabled={busy} onClick={()=>change(`/api/financeiro/transferencias/${t.id}`,{action:"EXECUTE"})}>Registrar transferência interna</Button>}{internal&&(t.status==="REQUESTED"||t.status==="APPROVED"||t.status==="PRODUCER_ACCEPTED")&&<Button variant="outline" disabled={busy} onClick={()=>{setModalReason("");setJustificationModal({kind:"REJECT_TRANSFER",id:t.id,label:`${t.origin} → ${t.destination} (${fmtBRL(t.amountCents)})`});}}>Reprovar</Button>}</div></div>))}
+ {(mode==="transferencias"&&(transfers.loading||transfers.error))?null:mode==="retencoes"?(reserveItems.length===0?<p className="text-sm text-slate-500">Nenhuma retenção registrada.</p>:reserveItems.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-2 border-b py-3 text-sm"><span><strong>{r.eventName}</strong> ({r.producerName}) · {r.purpose} · <span className="font-mono font-semibold">{fmtBRL(r.amountCents)}</span> · <Badge tone={r.status==="ACTIVE"?"amber":"green"}>{r.status}</Badge></span>{internal&&r.status==="ACTIVE"&&<Button variant="outline" disabled={busy} onClick={()=>{setModalReason("");setJustificationModal({kind:"RELEASE_RESERVE",id:r.id,label:`${r.eventName} · ${r.purpose} (${fmtBRL(r.amountCents)})`});}}>Liberar com justificativa</Button>}</div>)):(transferItems.length===0?<p className="text-sm text-slate-500">Nenhuma transferência solicitada.</p>:transferItems.map(t=><div key={t.id} className="flex flex-wrap items-center justify-between gap-2 border-b py-3 text-sm"><span><strong>{t.origin}</strong> → <strong>{t.destination}</strong> · <span className="font-mono font-semibold">{fmtBRL(t.amountCents)}</span> · <Badge tone={t.status==="EXECUTED"?"green":t.status==="REJECTED"?"red":"amber"}>{t.status}</Badge> · <span className="text-xs text-slate-500">{t.reason}</span></span><div className="flex flex-wrap gap-2">{internal&&t.status==="REQUESTED"&&<Button disabled={busy} onClick={()=>change(`/api/financeiro/transferencias/${t.id}`,{action:"APPROVE"})}>Aprovar</Button>}{!internal&&t.status==="APPROVED"&&<Button disabled={busy} onClick={()=>change(`/api/financeiro/transferencias/${t.id}`,{action:"PRODUCER_ACCEPT"})}>Confirmar aceite</Button>}{internal&&t.status==="PRODUCER_ACCEPTED"&&<Button disabled={busy} onClick={()=>change(`/api/financeiro/transferencias/${t.id}`,{action:"EXECUTE"})}>Registrar transferência interna</Button>}{internal&&(t.status==="REQUESTED"||t.status==="APPROVED"||t.status==="PRODUCER_ACCEPTED")&&<Button variant="outline" disabled={busy} onClick={()=>{setModalReason("");setJustificationModal({kind:"REJECT_TRANSFER",id:t.id,label:`${t.origin} → ${t.destination} (${fmtBRL(t.amountCents)})`});}}>Reprovar</Button>}</div></div>))}
  </Card>
+ {mode==="transferencias"&&<ListPagination meta={transfers.data} onPage={list.setPage} loading={transfers.loading}/>}
  {internal&&mode==="transferencias"&&<Card className="mt-5 p-5"><h2 className="mb-3 text-lg font-semibold">Habilitar produtor</h2><p className="mb-3 text-xs text-slate-500">O Financeiro decide quais produtores poderão solicitar transferências.</p><form className="flex flex-wrap items-end gap-3" onSubmit={e=>{e.preventDefault();change("/api/financeiro/permissoes-transferencia",{producerId:producer,enabled,maxPerTransferCents:parseBRLToCents(limit||"0")});}}><select required className="rounded-xl border p-3 text-sm" value={producer} onChange={e=>selectProducerForPolicy(e.target.value)}><option value="">Produtor</option>{producers.map(pr=><option value={pr.id} key={pr.id}>{pr.name} ({pr.id.slice(0,8)}…)</option>)}</select><label className="text-sm"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> Habilitado</label><Input required placeholder="Limite por operação R$" value={limit} onChange={e=>setLimit(e.target.value)}/><Button disabled={busy} type="submit">Salvar política</Button></form>
  <div className="mt-3 space-y-1 text-sm">{permissions.data?.items.map(q=><p key={q.producerId}><strong>{q.name}</strong>: {q.enabled?"permitido":"bloqueado"} · teto por operação {fmtBRL(q.maxPerTransferCents)}</p>)}</div></Card>}
 

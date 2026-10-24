@@ -3,7 +3,7 @@ import Link from "next/link";
 import {
   ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, ArrowUpFromLine,
   BookOpenCheck, CalendarDays, CheckCircle2, ChevronRight, CircleAlert, Clock3, CreditCard,
-  HandCoins, Layers3, ListChecks, LockKeyhole, Percent, RefreshCw, TrendingUp,
+  Grid2X2, HandCoins, Layers3, ListChecks, LockKeyhole, Percent, RefreshCw, TrendingUp,
   Wallet, type LucideIcon
 } from "lucide-react";
 import { ErrorNotice, Loading, StatusBadge, displayDate, useApi, type Title } from "@/components/financeiro/shared";
@@ -87,7 +87,13 @@ export function DashboardView() {
   return <div className="fintech-dashboard">
     <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
       <div><div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.17em] text-[#e4655b]"><span className="h-1.5 w-1.5 rounded-full bg-[#e4655b]"/>PAINEL FINANCEIRO · SOUL v5.2 & CONTÁBIL v4.4</div><h1 className="text-[30px] font-bold tracking-[-.065em] text-[#252227] sm:text-[35px]">Visão geral</h1><p className="mt-1.5 text-[13px] text-[#8f898e]">{title} Indicadores atualizados a partir dos registros existentes.</p></div>
-      <button type="button" onClick={reload} disabled={loading} className="fintech-outline-button"><RefreshCw size={16} className={loading ? "animate-spin" : ""}/>Atualizar dados</button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Link href="/modulos" className="fintech-outline-button">
+          <Grid2X2 size={16} />
+          Central de módulos
+        </Link>
+        <button type="button" onClick={reload} disabled={loading} className="fintech-outline-button"><RefreshCw size={16} className={loading ? "animate-spin" : ""}/>Atualizar dados</button>
+      </div>
     </div>
 
     {!producer && (

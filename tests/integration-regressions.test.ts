@@ -210,6 +210,14 @@ test("regressões financeiras com persistência, idempotência e restauração i
         assert.equal((await api("/api/recebimentos?pagina=0")).status,400);
         assert.equal((await api("/api/pagamentos?limite=101")).status,400);
         const titlePage=await api("/api/recebimentos?limite=1","GET",undefined,owner);assert.equal(titlePage.status,200);assert.ok(titlePage.data.items.length<=1);assert.ok(titlePage.data.count>=titlePage.data.items.length);assert.ok(titlePage.data.items.every((row:{producerId:string})=>row.producerId===owner.producerId));
+        for(const route of ["/api/financeiro/vendas","/api/financeiro/transferencias","/api/repasses?somenteLista=1"]){
+          const join=route.includes("?")?"&":"?";
+          assert.equal((await api(route+join+"pagina=0")).status,400);
+          const page=await api(route+join+"limite=1");assert.equal(page.status,200);assert.ok(page.data.items.length<=1);assert.ok(page.data.count>=page.data.items.length);assert.ok(page.data.summary);
+        }
+        assert.equal((await api("/api/financeiro/vendas","GET",undefined,owner)).status,403);
+        const ownPayouts=await api("/api/repasses?somenteLista=1&limite=1","GET",undefined,owner);
+        assert.equal(ownPayouts.status,200);assert.ok(!("events" in ownPayouts.data));assert.ok(ownPayouts.data.items.every((p:{producerId:string;settlementReference?:string})=>p.producerId===owner.producerId&&!("settlementReference" in p)));
         const compactAccounts=await api("/api/contas?resumo=1","GET",undefined,finance);assert.equal(compactAccounts.status,200);assert.ok(compactAccounts.data.items.length>0);assert.ok(compactAccounts.data.items.every((row:Record<string,unknown>)=>!("recentEntries" in row)&&!("openingCents" in row)));
         assert.equal((await api("/api/contas?resumo=1","GET",undefined,owner)).status,403);
         const monitored=await fetch(base+"/api/governanca/configuracoes",{method:"POST",headers:{Cookie:`disk_financeiro_session=${tokens.get(admin.id)}`,"Content-Type":"application/json","X-Request-ID":"CLIENT-SPOOF"},body:JSON.stringify({key:"overdueDays",value:1})});

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import assert from "node:assert/strict";
 import {PrismaClient} from "@prisma/client";
 import {assertOwnedSchema} from "./lib/postgres-isolation.mjs";
+import {operationalListScenarios} from "../tests/helpers/operational-list-scenarios";
 import {listTitles} from "../src/lib/title-list";
 assertOwnedSchema(process.env.DATABASE_URL??"",process.env.HOMOLOG_SCHEMA??"");
 const db=new PrismaClient();
@@ -19,6 +20,8 @@ async function main(){
   assert.equal((await listTitles(db,owner,"RECEIVABLE",new URLSearchParams({q:"confidencial"}))).count,0);
   assert.equal((await listTitles(db,admin,"RECEIVABLE",new URLSearchParams())).count,131);
   assert.ok(first.items.every(t=>!("bankAccountId" in t)));
+  const operations=await operationalListScenarios(db);
+  fs.writeFileSync("homologacao-resultados/pacotes9-12-postgresql.json",JSON.stringify({completedAt:new Date().toISOString(),provider:"postgresql",...operations},null,2));
   const report={status:"APROVADO",completedAt:new Date().toISOString(),provider:"postgresql",scope:"paginação, ordem estável, totais BigInt, busca insensível a caixa e isolamento por produtor",rows:131,pages:6};
   fs.mkdirSync("homologacao-resultados",{recursive:true});fs.writeFileSync("homologacao-resultados/pacote8-postgresql.json",JSON.stringify(report,null,2));console.log(JSON.stringify(report));
 }

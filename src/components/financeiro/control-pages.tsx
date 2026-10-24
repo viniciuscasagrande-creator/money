@@ -1290,7 +1290,7 @@ type Journal = {
   credit: string;
 };
 
-export function AccountingPage() {
+export function AccountingPage({ hideBackLinks = false }: { hideBackLinks?: boolean } = {}) {
   const [start, setStart] = useState(""),
     [end, setEnd] = useState(""),
     [rows, setRows] = useState<Journal[]>([]),
@@ -1322,6 +1322,7 @@ export function AccountingPage() {
   return (
     <>
       <PageHeading
+        hideBackLinks={hideBackLinks}
         eyebrow="Contabilidade · Escrituração"
         title="Pré-exportação Contábil do Razão Bancário (CSV)"
         subtitle="Consulta de partidas sugeridas a partir do razão bancário com exportação CSV segura. Para Plano de Contas Hierárquico, Livro Razão, Balancete e DRE, acesse o Motor Contábil."

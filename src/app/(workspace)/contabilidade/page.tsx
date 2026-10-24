@@ -13,7 +13,7 @@ export default async function Page() {
     <div className="space-y-8">
       <AccountingBooks />
       <div className="border-t border-slate-200 pt-8">
-        <AccountingPage />
+        <AccountingPage hideBackLinks />
       </div>
     </div>
   );

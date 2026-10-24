@@ -42,7 +42,10 @@
     "monitor:dispatch": "tsx scripts/operational-monitor.ts --dispatch",
     "release:plan": "node scripts/release-vercel.mjs",
     "release:execute": "node scripts/release-vercel.mjs --execute",
-    "db:deploy:pg": "prisma migrate deploy --schema=prisma/postgresql/schema.prisma"
+    "db:deploy:pg": "prisma migrate deploy --schema=prisma/postgresql/schema.prisma",
+    "quality:plan": "node scripts/quality-unified.mjs --plan",
+    "test:delivery": "node scripts/quality-unified.mjs --execute",
+    "delivery:verify": "node scripts/delivery-integrity.mjs --verify"
   },
   "dependencies": {
     "@neon/config": "^1.9.2",

@@ -12,10 +12,17 @@ Atualizado em 24/10/2026. A ordem abaixo representa entregas incrementais; uma l
 | 6 — Backup operacional | Criptografia AES-256-GCM, cópia externa (`E:/MONEY-BACKUPS-EXTERNO`), retenção e ensaio isolado ativos | Manter agendamento diário de snapshot e ensaio semanal de restauração |
 | 7 — Monitoramento e auditoria | Correlação HTTP/auditoria (`requestId`), logs estruturados, painel administrativo e caixa de saída persistente implantados | Conectar receptor HTTPS externo (`MONITOR_WEBHOOK_URL`) e manter agendamento de `monitor:check` / `monitor:dispatch` |
 | 8 — Experiência e desempenho | Paginação/busca/sumários de títulos, resumo de contas, origem loopback, acessibilidade e ensaio visual/PostgreSQL implementados | Validar em produção após publicação e continuar revisão progressiva das demais telas densas |
-| 9 — Homologação e implantação | Planejado | Testar os fluxos completos no navegador, validar permissões por perfil e ensaiar implantação e retorno da versão |
-| 10 — Segurança operacional | Planejado | Autenticação em dois fatores para administradores, recuperação de acesso e revisão das sessões |
-| 11 — Aprovações financeiras | Planejado | Aprovação em duas etapas para alterações de dados bancários, estornos e operações acima de limites definidos |
-| 12 — Qualidade dos dados | Planejado | Identificar cadastros duplicados, vínculos incompletos e inconsistências financeiras, com correção rastreável |
+
+## Entrega única — pacotes 9–12
+
+| Pacote | Implementação | Ativação |
+|---|---|---|
+| 9 — Vendas completas | Busca, situação, paginação e totais do conjunto filtrado | Homologar em preview |
+| 10 — Repasses completos | Lista paginada e filtrada separada da posição dos eventos | Homologar em preview |
+| 11 — Transferências completas | Histórico completo, filtros e agregados com escopo por produtor | Homologar em preview |
+| 12 — Qualidade e integridade | Executor único das verificações locais e manifesto SHA-256 dos arquivos | Pipeline remoto depende da configuração do pacote 1 |
+
+Detalhes e limites: [PACOTES9-12-ENTREGA-UNICA.md](PACOTES9-12-ENTREGA-UNICA.md). A numeração acima representa a nova entrega consolidada autorizada pelo usuário; não havia pacotes 9–12 preexistentes.
 
 ## Critérios para os próximos pacotes
 

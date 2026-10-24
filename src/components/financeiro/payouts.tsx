@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { Card } from "@/components/ui/card";
-import { ListSearch, searchRows } from "@/components/financeiro/list-search";
+import { useListQuery, ListFilters, ListPagination, type PageMeta } from "./paged-list";
 import { Dialog, DialogTitle, DialogDescription, DialogContent } from "@/components/ui/dialog";
 import { RecordDetailModal, DetailsButton } from "@/components/financeiro/record-detail-modal";
 import { Plus, CalendarPlus, ArrowRight } from "lucide-react";
@@ -96,10 +96,13 @@ function availableActions(p: Payout, role: Payload["role"]) {
 
 export function PayoutsPage() {
   const [requestOpen, setRequestOpen] = useState(false),
-    [detailId, setDetailId] = useState<string | null>(null),
-    [query, setQuery] = useState("");
+    [detailId, setDetailId] = useState<string | null>(null);
   const [quickEventOpen, setQuickEventOpen] = useState(false);
-  const { data, error, loading, reload } = useApi<Payload>("/api/repasses");
+  const list = useListQuery();
+  const positions = useApi<Payload>("/api/repasses");
+  const listing = useApi<PageMeta & { items: Payout[]; role: Payload["role"]; summary: { amountCents: string } }>(`/api/repasses?somenteLista=1&${list.params}`);
+  const data = positions.data, error = positions.error, loading = positions.loading;
+  const reload = () => { positions.reload(); listing.reload(); };
   const internal = data?.role !== "PRODUCER";
   const isAdmin = data?.role === "ADMIN";
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -122,33 +125,30 @@ export function PayoutsPage() {
   const [newEventCode, setNewEventCode] = useState("");
 
   useEffect(() => {
-    if (data && data.role !== "PRODUCER") {
-      api<{ items: Account[] }>("/api/contas")
+    if (selected?.action === "SETTLE" && data && data.role !== "PRODUCER") {
+      api<{ items: Account[] }>("/api/contas?resumo=1")
         .then((x) => setAccounts(x.items.filter((a) => a.active)))
         .catch((e) => setMessage(e.message));
-      if (data.role === "ADMIN") {
-        api<{ items: Producer[] }>("/api/admin/produtores")
-          .then((p) => setProducers(p.items))
-          .catch(() => {});
-      }
     }
-  }, [data]);
+  }, [selected, data]);
+
+  useEffect(() => {
+    if (quickEventOpen && data?.role === "ADMIN") {
+      api<{ items: Producer[] }>("/api/admin/produtores")
+        .then((p) => setProducers(p.items))
+        .catch(() => {});
+    }
+  }, [quickEventOpen, data]);
 
   const events = data?.events ?? [];
-  const items = data?.items ?? [];
+  const items = listing.data?.items ?? [];
   const totalRightsCents = events.reduce((s, e) => s + BigInt(e.totalCents || "0"), 0n);
   const totalSettledCents = events.reduce((s, e) => s + BigInt(e.settledCents || "0"), 0n);
   const totalRetainedCents = events.reduce((s, e) => s + BigInt(e.retainedCents ?? "0"), 0n);
   const totalAvailableRepasse = events.reduce((s, e) => s + BigInt(e.repasseCents || "0"), 0n);
 
   const current = events.find((e) => e.id === eventId);
-  const shown = searchRows(items, query, (p) => [
-    p.eventName,
-    p.producerName,
-    p.type,
-    p.status,
-    p.amountCents,
-  ]);
+  const shown = items;
 
   async function request(e: FormEvent) {
     e.preventDefault();
@@ -246,12 +246,14 @@ export function PayoutsPage() {
         }
         action={
           <div className="flex flex-wrap gap-2">
-            <Link
-              href="/retencoes"
-              className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50"
-            >
-              Retenções por Evento
-            </Link>
+            {internal && (
+              <Link
+                href="/retencoes"
+                className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Retenções por Evento
+              </Link>
+            )}
             <Link
               href="/transferencias"
               className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50"
@@ -297,7 +299,7 @@ export function PayoutsPage() {
 
       {loading ? (
         <Loading />
-      ) : (
+      ) : error ? null : (
         <>
           {/* Indicadores específicos de Repasses e Antecipações */}
           <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -305,7 +307,7 @@ export function PayoutsPage() {
               <p className="text-xs font-medium text-slate-500">Eventos vinculados</p>
               <p className="mt-2 text-2xl font-bold text-slate-900">{events.length}</p>
               <p className="mt-1 text-[11px] text-slate-400">
-                {items.length} solicitação(ões) de repasse/antecipação
+                {listing.data?.count ?? "—"} solicitação(ões) nos filtros de repasse/antecipação
               </p>
             </Card>
             <Card className="p-5">
@@ -535,19 +537,14 @@ export function PayoutsPage() {
 
           <PayoutLocksPanel onChanged={reload} />
 
-          <div className="mt-5">
-            <ListSearch
-              value={query}
-              onChange={setQuery}
-              count={shown.length}
-              label="Buscar repasse, evento, produtor ou situação"
-            />
-          </div>
+          <ListFilters state={list} count={listing.data?.count} label="Buscar evento, produtor ou valor exato em centavos" statuses={[["ALL", "Todas"], ...Object.entries(statuses)]} />
+          <p className="text-xs text-slate-500">Os saldos por evento independem dos filtros de solicitações. Total das solicitações filtradas: {listing.data ? fmtBRL(listing.data.summary.amountCents) : "—"}.</p>
+          {listing.error && <ErrorNotice message={listing.error} retry={listing.reload} />}
           <Card className="mt-5 overflow-hidden">
             <div className="border-b border-slate-100 p-5 font-semibold">
-              Solicitações e etapas de aprovação ({shown.length})
+              Solicitações e etapas de aprovação ({listing.data?.count ?? "—"})
             </div>
-            {shown.length ? (
+            {listing.loading ? <Loading /> : listing.error ? null : shown.length ? (
               <div className="overflow-x-auto">
                 <table className="dashboard-table">
                   <thead>
@@ -618,6 +615,8 @@ export function PayoutsPage() {
               <Empty text="Nenhuma solicitação de repasse ou antecipação registrada." />
             )}
           </Card>
+
+          <ListPagination meta={listing.data} onPage={list.setPage} loading={listing.loading} />
 
           {selected && (
             <Dialog

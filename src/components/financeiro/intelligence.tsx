@@ -66,7 +66,17 @@ export function ReportsPage() {
     setParams(p.toString());
   }
 
-  const max = Math.max(1, ...(data?.rows ?? []).map((r) => Number(r.grossCents)));
+  const maxBig = (data?.rows ?? []).reduce((m, r) => {
+    const val = BigInt(r.grossCents || "0");
+    return val > m ? val : m;
+  }, 0n);
+
+  function barWidthPct(cents: string): number {
+    if (maxBig <= 0n) return 0;
+    const val = BigInt(cents || "0");
+    if (val <= 0n) return 0;
+    return Math.min(100, Number((val * 100n) / maxBig));
+  }
 
   return (
     <>
@@ -252,7 +262,7 @@ export function ReportsPage() {
                       <div
                         className="h-full rounded-full bg-slate-800"
                         style={{
-                          width: `${Math.max(0, (Number(row.grossCents) / max) * 100)}%`,
+                          width: `${barWidthPct(row.grossCents)}%`,
                         }}
                       />
                     </div>
@@ -337,8 +347,10 @@ export function AlertsPage() {
     "/api/inteligencia/alertas"
   );
   const [saving, setSaving] = useState("");
+  const [actionError, setActionError] = useState("");
   async function ack(item: Alert) {
     setSaving(item.key);
+    setActionError("");
     try {
       await api("/api/inteligencia/alertas", {
         method: "POST",
@@ -346,7 +358,7 @@ export function AlertsPage() {
       });
       reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Erro ao salvar.");
+      setActionError(e instanceof Error ? e.message : "Erro ao salvar.");
     } finally {
       setSaving("");
     }
@@ -365,6 +377,7 @@ export function AlertsPage() {
         }
       />
       {error && <ErrorNotice message={error} retry={reload} />}
+      {actionError && <ErrorNotice message={actionError} />}
       {loading ? (
         <Loading />
       ) : (

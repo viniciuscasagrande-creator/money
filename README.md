@@ -100,3 +100,5 @@ E:\MONEY
 - [Pacote 8: experiência, listagens e homologação visual](docs/deploy/PACOTE8-EXPERIENCIA-DESEMPENHO.md).
 - [Pendências de ativação dos serviços](docs/deploy/ATIVACAO-PENDENCIAS.md).
 - [Situação dos próximos pacotes](docs/deploy/PROXIMOS-PACOTES.md).
+
+Entrega consolidada dos pacotes 9–12: [escopo, validação e integridade](docs/deploy/PACOTES9-12-ENTREGA-UNICA.md). Execute `npm run test:delivery` para a rotina única de qualidade local.

@@ -5,16 +5,18 @@ import { authorize, fail, isInternal } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createPayout, eventAvailability, eventAvailabilityDTO, payoutDTO } from "@/lib/operations";
 import { apiCatch } from "@/lib/validation";
+import {listPayouts} from "@/lib/operational-lists";
 import { releaseLimit } from "@/lib/release-policy";
 export const runtime = "nodejs";
 const schema = z.object({ eventId: z.string().min(1), type: z.enum(["REPASSE", "ANTECIPACAO"]),
   amountCents: z.string().regex(/^\d{1,16}$/) }).strict();
 async function GETHandler(request: NextRequest) {
   const { user, error } = await authorize(request); if (error || !user) return error!;
+  try {
   const internal = isInternal(user.role);
-  const [payouts, events] = await Promise.all([
-    prisma.payoutRequest.findMany({ where: internal ? {} : { producerId: user.producerId! },
-      include: { producer: { select: { name: true } }, event: { select: { name: true } } }, take: 100, orderBy: { createdAt: "desc" } }),
+  if(request.nextUrl.searchParams.get("somenteLista")==="1")return NextResponse.json({...await listPayouts(prisma,user,request.nextUrl.searchParams),role:user.role},{headers:{"Cache-Control":"no-store, private"}});
+  const [listing, events] = await Promise.all([
+    listPayouts(prisma,user,request.nextUrl.searchParams),
     prisma.event.findMany({ where: internal ? {} : { producerId: user.producerId! },
       orderBy: { name: "asc" }, select: { id: true, name: true, producerId: true, producer: { select: { name: true } } } })
   ]);
@@ -28,7 +30,8 @@ async function GETHandler(request: NextRequest) {
       repasseCents: (policy?.availableCents ?? availability.repasseCents).toString()
     };
   }));
-  return NextResponse.json({ items: payouts.map(p => payoutDTO(p, internal)), events: balances, role: user.role });
+  return NextResponse.json({ ...listing, events: balances, role: user.role },{headers:{"Cache-Control":"no-store, private"}});
+  }catch(e){const x=apiCatch(e);return fail(x.message,x.status);}
 }
 async function POSTHandler(request: NextRequest) {
   const { user, error } = await authorize(request); if (error || !user) return error!;
