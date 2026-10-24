@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AlertCircle, FileX2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,13 +18,17 @@ export async function api<T>(url: string, options?: RequestInit): Promise<T> {
   return body as T;
 }
 export function useApi<T>(url: string) {
-  const [data, setData] = useState<T | null>(null), [error, setError] = useState(""), [loading, setLoading] = useState(true), [revision, setRevision] = useState(0);
-  useEffect(() => { let active = true;
-    api<T>(url).then(value => { if (active) setData(value); }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+  const [revision,setRevision]=useState(0);
+  const [state,setState]=useState<{url:string;revision:number;data:T|null;error:string;loading:boolean}>({url,revision:0,data:null,error:"",loading:true});
+  useEffect(() => {
+    const controller=new AbortController();
+    setState({url,revision,data:null,error:"",loading:true});
+    api<T>(url,{signal:controller.signal}).then(data=>{if(!controller.signal.aborted)setState({url,revision,data,error:"",loading:false});}).catch(e=>{if(!controller.signal.aborted)setState({url,revision,data:null,error:e instanceof Error?e.message:"Falha na consulta.",loading:false});});
+    return () => controller.abort();
   }, [url, revision]);
-  function reload() { setLoading(true); setError(""); setRevision(v=>v+1); }
-  return { data, error, loading, reload };
+  const reload=useCallback(()=>setRevision(v=>v+1),[]);
+  const current=state.url===url&&state.revision===revision;
+  return {data:current?state.data:null,error:current?state.error:"",loading:!current||state.loading,reload};
 }
 export function PageHeading({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle: string; action?: ReactNode }) {
   return <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="mb-2 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[.17em] text-[#e4655b]"><span className="h-1.5 w-1.5 rounded-full bg-[#e4655b]"/>{eyebrow}</p><h1 className="text-[29px] font-bold tracking-[-.05em] text-[#29262b] md:text-[34px]">{title}</h1><p className="mt-2 max-w-3xl text-[13px] leading-6 text-[#8f898e]">{subtitle}</p></div>{action}</div>;

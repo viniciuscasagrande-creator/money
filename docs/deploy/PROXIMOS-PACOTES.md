@@ -11,7 +11,7 @@ Atualizado em 24/10/2026. A ordem abaixo representa entregas incrementais; uma l
 | 5 — Contabilidade e demonstrativos | Prévia, cópia histórica de regras, trilha de origem e demonstrativos implantados | Revisar mapeamentos contábeis e fiscais definitivos com a contabilidade |
 | 6 — Backup operacional | Criptografia AES-256-GCM, cópia externa (`E:/MONEY-BACKUPS-EXTERNO`), retenção e ensaio isolado ativos | Manter agendamento diário de snapshot e ensaio semanal de restauração |
 | 7 — Monitoramento e auditoria | Correlação HTTP/auditoria (`requestId`), logs estruturados, painel administrativo e caixa de saída persistente implantados | Conectar receptor HTTPS externo (`MONITOR_WEBHOOK_URL`) e manter agendamento de `monitor:check` / `monitor:dispatch` |
-| 8 — Experiência e desempenho | Planejado | Testar fluxos em navegador e celular e medir consultas antes de otimizar ou paginar |
+| 8 — Experiência e desempenho | Paginação/busca/sumários de títulos, resumo de contas, origem loopback, acessibilidade e ensaio visual/PostgreSQL implementados | Validar em produção após publicação e continuar revisão progressiva das demais telas densas |
 | 9 — Homologação e implantação | Planejado | Testar os fluxos completos no navegador, validar permissões por perfil e ensaiar implantação e retorno da versão |
 | 10 — Segurança operacional | Planejado | Autenticação em dois fatores para administradores, recuperação de acesso e revisão das sessões |
 | 11 — Aprovações financeiras | Planejado | Aprovação em duas etapas para alterações de dados bancários, estornos e operações acima de limites definidos |

@@ -10,6 +10,11 @@ async function GETHandler(request: NextRequest) {
   const { error } = await authorize(request, ["ADMIN", "FINANCE_DISK"]);
   if (error) return error;
 
+  if(request.nextUrl.searchParams.get("resumo")==="1"){
+    const accounts=await prisma.bankAccount.findMany({where:{active:true},orderBy:[{name:"asc"},{id:"asc"}],select:{id:true,name:true,institution:true,lastFour:true,balanceCents:true,active:true,createdAt:true}});
+    return NextResponse.json({items:accounts.map(a=>({...a,balanceCents:a.balanceCents.toString(),createdAt:a.createdAt.toISOString()}))},{headers:{"Cache-Control":"no-store, private"}});
+  }
+
   const [accounts, ledgerEntries] = await Promise.all([
     prisma.bankAccount.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.ledgerEntry.findMany({ orderBy: { createdAt: "desc" } }),

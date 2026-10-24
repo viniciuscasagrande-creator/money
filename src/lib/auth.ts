@@ -4,6 +4,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
 import { createVerifiedSession } from "@/lib/account-security";
+import {sameRequestOrigin} from "./origin-policy";
 
 const COOKIE_NAME = "disk_financeiro_session";
 const AGE_SEC = 60 * 60 * 8;
@@ -42,8 +43,7 @@ export async function endSession() {
 export function originAllowed(request: NextRequest) {
   const origin = request.headers.get("origin");
   if (!origin) return true; // clientes CLI não enviam Origin; autenticados por cookie
-  try { return new URL(origin).host === request.nextUrl.host && new URL(origin).protocol === request.nextUrl.protocol; }
-  catch { return false; }
+  return sameRequestOrigin(origin,request.nextUrl.protocol,request.headers.get("host")??request.nextUrl.host);
 }
 
 export const fail = (message: string, status = 400) => NextResponse.json({ error: message }, { status });

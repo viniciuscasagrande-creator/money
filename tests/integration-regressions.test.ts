@@ -204,6 +204,14 @@ test("regressões financeiras com persistência, idempotência e restauração i
       try{
         let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base+"/login")).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}
         assert.ok(ready,logs);
+        const originProbe=(origin:string)=>fetch(base+"/api/auth/login",{method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},body:"{}"});
+        assert.equal((await originProbe(base)).status,400);
+        assert.equal((await originProbe("https://origem-externa.invalid")).status,403);
+        assert.equal((await api("/api/recebimentos?pagina=0")).status,400);
+        assert.equal((await api("/api/pagamentos?limite=101")).status,400);
+        const titlePage=await api("/api/recebimentos?limite=1","GET",undefined,owner);assert.equal(titlePage.status,200);assert.ok(titlePage.data.items.length<=1);assert.ok(titlePage.data.count>=titlePage.data.items.length);assert.ok(titlePage.data.items.every((row:{producerId:string})=>row.producerId===owner.producerId));
+        const compactAccounts=await api("/api/contas?resumo=1","GET",undefined,finance);assert.equal(compactAccounts.status,200);assert.ok(compactAccounts.data.items.length>0);assert.ok(compactAccounts.data.items.every((row:Record<string,unknown>)=>!("recentEntries" in row)&&!("openingCents" in row)));
+        assert.equal((await api("/api/contas?resumo=1","GET",undefined,owner)).status,403);
         const monitored=await fetch(base+"/api/governanca/configuracoes",{method:"POST",headers:{Cookie:`disk_financeiro_session=${tokens.get(admin.id)}`,"Content-Type":"application/json","X-Request-ID":"CLIENT-SPOOF"},body:JSON.stringify({key:"overdueDays",value:1})});
         assert.equal(monitored.status,200);const monitoredId=monitored.headers.get("X-Request-ID")!;assert.ok(validRequestId(monitoredId));
         const correlated=await db.auditLog.findFirstOrThrow({where:{action:"FINANCE_SETTING_CHANGED",requestId:monitoredId}});assert.equal(correlated.actorId,admin.id);

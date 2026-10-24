@@ -97,4 +97,6 @@ E:\MONEY
 - [Pacote 5: contabilidade e demonstrativos](docs/deploy/PACOTE5-CONTABILIDADE-DEMONSTRATIVOS.md).
 - [Pacote 6: backup e recuperação operacional](docs/deploy/PACOTE6-BACKUP-RECUPERACAO.md).
 - [Pacote 7: monitoramento e auditoria](docs/deploy/PACOTE7-MONITORAMENTO-AUDITORIA.md).
+- [Pacote 8: experiência, listagens e homologação visual](docs/deploy/PACOTE8-EXPERIENCIA-DESEMPENHO.md).
+- [Pendências de ativação dos serviços](docs/deploy/ATIVACAO-PENDENCIAS.md).
 - [Situação dos próximos pacotes](docs/deploy/PROXIMOS-PACOTES.md).

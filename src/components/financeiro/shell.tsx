@@ -132,7 +132,7 @@ export function WorkspaceShell({ user, children, capabilities }: { user: User; c
 
   return <div className="premium-workspace min-h-screen lg:flex">
     {mobile && <button className="fixed inset-0 z-40 bg-[#111116]/60 backdrop-blur-[2px] lg:hidden" onClick={() => setMobile(false)} aria-label="Fechar menu"/>}
-    <aside className={cn("fintech-sidebar fixed z-50 flex h-[100dvh] flex-col transition-[width,left] duration-200 lg:sticky lg:top-0", collapsed ? "lg:w-[82px]" : "lg:w-[260px]", mobile ? "left-0 w-[280px]" : "-left-[290px] lg:left-0")}>
+    <aside className={cn("fintech-sidebar fixed z-50 flex h-[100dvh] flex-col transition-[width,left] duration-200 lg:sticky lg:top-0", collapsed ? "lg:w-[82px]" : "lg:w-[260px]", mobile ? "left-0 w-[280px] visible" : "-left-[290px] invisible lg:visible lg:left-0")}>
       <div className="flex h-[90px] shrink-0 items-center justify-between gap-2 px-5">
         <Brand compact={collapsed && !mobile}/>
         <button type="button" onClick={() => mobile ? setMobile(false) : setCollapsed(!collapsed)} className="fintech-icon-button-dark" aria-label={mobile ? "Fechar menu" : collapsed ? "Expandir menu" : "Recolher menu"}>
