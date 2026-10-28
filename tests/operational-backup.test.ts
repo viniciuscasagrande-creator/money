@@ -43,7 +43,19 @@ import {
   rollbackAssistedRecovery,
   ASSISTED_RECOVERY_CONFIRMATION,
   authorizeAndAuditBackupOperation,
-  runBackupRecoveryHomologation
+  runBackupRecoveryHomologation,
+  backupScheduleConfig,
+  acquireBackupExecutionLock,
+  releaseBackupExecutionLock,
+  runScheduledBackupWithLockAndRetry,
+  preflightCapacityCheck,
+  benchmarkLargeVolumeBackup,
+  saveImmutableProtectedCopy,
+  applyImmutableAwareRetention,
+  packEncryptedAttachmentsBundle,
+  restoreAndVerifyAttachmentsBundle,
+  verifyCleanMachineRecovery,
+  generateFinalMaintenanceDossier
 } from "../src/lib/operational-backup";
 import {compareRestoredDump} from "../src/lib/backup-verification";
 import {inspectBackupOperationsHealth,recordLocalBackupHistory} from "../src/lib/operational-monitor";
@@ -401,5 +413,86 @@ test("CLI gera cópia cifrada, ensaia restauração e valida Pacotes 9, 11 e 12 
     assert.ok(homolog.metrics.rtoMs>0);
     assert.ok(homolog.metrics.rpoMinutes>=4.9);
     assert.ok(fs.existsSync(homologReportPath));
+
+    // Pacote 13: agendamento confiável com bloqueio de concorrência e retry com backoff
+    const lockDir=path.join(folder,"lock-dir");
+    const activeLock=acquireBackupExecutionLock(lockDir,60000);
+    assert.throws(()=>acquireBackupExecutionLock(lockDir,60000),/EXECUCAO_SIMULTANEA_BLOQUEADA/);
+    releaseBackupExecutionLock(activeLock);
+
+    let scheduledAttempts=0;
+    const schedHistFile=path.join(folder,"sched-history.json");
+    const scheduledRun=await runScheduledBackupWithLockAndRetry({
+      lockFolder:lockDir,
+      schedule:backupScheduleConfig({BACKUP_MAX_RETRIES:"3",BACKUP_RETRY_DELAY_MS:"10"}),
+      historyFile:schedHistFile,
+      task:async(attempt)=>{
+        scheduledAttempts=attempt;
+        if(attempt<2)throw new Error("Falha transitória simulada de rede");
+        return "SUCESSO_APOS_RETRY";
+      }
+    });
+    assert.equal(scheduledRun.status,"EXECUTADO");
+    assert.equal(scheduledRun.attemptsUsed,2);
+    assert.equal(scheduledAttempts,2);
+
+    // Pacote 14: capacidade prévia e benchmark com volume elevado
+    assert.throws(()=>preflightCapacityCheck(folder,50*1024*1024,100*1024*1024,10*1024*1024),/ESPACO_INSUFICIENTE/);
+    const capOk=preflightCapacityCheck(folder,1024*1024,10*1024*1024,500*1024*1024);
+    assert.equal(capOk.sufficient,true);
+    const bench=benchmarkLargeVolumeBackup(1000,key,10000);
+    assert.equal(bench.withinLimits,true);
+    assert.equal(bench.totalRows,2001);
+    assert.ok(bench.compressionRatio<0.5);
+
+    // Pacote 15: proteção contra exclusão (WORM / imutabilidade e retenção protegida)
+    const immDir=path.join(folder,"immutable");
+    const b1=saveBackup(local,{...empty(),exportedAt:"2026-10-20T00:00:00.000Z"},key);
+    const b2=saveBackup(local,{...empty(),exportedAt:"2026-10-21T00:00:00.000Z"},key);
+    const b3=saveBackup(local,{...empty(),exportedAt:"2026-10-22T00:00:00.000Z"},key);
+    const p1=saveImmutableProtectedCopy(b1,immDir,key,30);
+    saveImmutableProtectedCopy(b2,immDir,key,30);
+    saveImmutableProtectedCopy(b3,immDir,key,30);
+    // Excluir cópia local não elimina a cópia protegida
+    fs.unlinkSync(b1);
+    assert.ok(fs.existsSync(p1.protectedFile));
+    // Retenção não apaga cópias dentro da janela de imutabilidade
+    const protRet=applyImmutableAwareRetention(immDir,key,2);
+    assert.equal(protRet.removed.length,0);
+    assert.equal(protRet.blockedByImmutability.length,1);
+    assert.ok(fs.existsSync(p1.protectedFile));
+
+    // Pacote 16: anexos e arquivos vinculados com verificação de integridade e referências
+    const attachSrc=path.join(folder,"attachments-src");
+    const attachDst=path.join(folder,"attachments-dst");
+    fs.mkdirSync(path.join(attachSrc,"comprovantes"),{recursive:true});
+    fs.writeFileSync(path.join(attachSrc,"comprovantes","recibo-001.pdf"),Buffer.from("PDF_COMPROVANTE_SINTETICO"));
+    const refs=[{recordType:"FinancialTitle",recordId:user.id,relativePath:"comprovantes/recibo-001.pdf"}];
+    const attachBundle=packEncryptedAttachmentsBundle(attachSrc,refs,key);
+    const attachRestored=restoreAndVerifyAttachmentsBundle(attachBundle,attachDst,key,new Set([user.id]));
+    assert.equal(attachRestored.status,"ANEXOS_RESTAURADOS_E_VERIFICADOS");
+    assert.equal(attachRestored.filesRestored,1);
+    assert.equal(attachRestored.brokenLinks,0);
+    assert.throws(
+      ()=>packEncryptedAttachmentsBundle(attachSrc,[{recordType:"FinancialTitle",recordId:user.id,relativePath:"comprovantes/inexistente.pdf"}],key),
+      /ANEXOS_COM_VINCULO_QUEBRADO/
+    );
+
+    // Pacote 17: recuperação em outro computador (ambiente limpo isolado + chave separada)
+    const cleanMachineResult=await verifyCleanMachineRecovery({
+      sourceDump:before,
+      separateVaultKeyHex:key.toString("hex")
+    });
+    assert.equal(cleanMachineResult.status,"AMBIENTE_LIMPO_OPERACIONAL");
+    assert.equal(cleanMachineResult.bankLedger,"reconciliado");
+    assert.equal(cleanMachineResult.financialConsistencyValid,true);
+
+    // Pacote 18: dossiê final consolidado dos 18 pacotes e rotina de manutenção
+    const dossierPath=path.join(folder,"dossie-1-18.json");
+    const dossier=generateFinalMaintenanceDossier({dump:before,keyOrRing:key,outputDossierPath:dossierPath});
+    assert.equal(Object.keys(dossier.packagesStatus).length,18);
+    assert.ok(Object.values(dossier.packagesStatus).every(v=>v==="APROVADO"));
+    assert.ok(dossier.maintenanceScheduleAndResponsibilities.length>=5);
+    assert.ok(fs.existsSync(dossierPath));
   }finally{await db.$disconnect();if(reportFile)fs.rmSync(reportFile,{force:true});for(const suffix of ["","-journal","-wal","-shm"])fs.rmSync(restoredFile+suffix,{force:true});fs.rmSync(folder,{recursive:true,force:true});}
 });

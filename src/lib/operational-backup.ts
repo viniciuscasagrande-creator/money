@@ -775,3 +775,6 @@ export async function runBackupRecoveryHomologation(options:{
     fs.rmSync(tempRoot,{recursive:true,force:true});
   }
 }
+
+export * from "./backup-extensions";
+

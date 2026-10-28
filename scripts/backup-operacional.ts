@@ -22,7 +22,11 @@ import {
   isSameStorageVolume,
   compareBackupFiles,
   validateBackupFinancialFile,
-  previewBackupRecovery
+  previewBackupRecovery,
+  runScheduledBackupWithLockAndRetry,
+  preflightCapacityCheck,
+  measureBackupPerformanceAndCapacity,
+  generateFinalMaintenanceDossier
 } from "../src/lib/operational-backup";
 import {
   monitorHeartbeat,
@@ -40,6 +44,95 @@ function loadLatestValidDump(folder:string,ring:ReturnType<typeof backupKeyRing>
   const newest=plan.retained[0];
   if(!newest)return null;
   try{return readBackup(newest,ring);}catch{return null;}
+}
+
+async function executeBackupCycle(ring:ReturnType<typeof backupKeyRing>,folder:string,keep:number,flags:Set<string>){
+  if(!process.env.BACKUP_EXTERNAL_DIR)throw new Error("Configure BACKUP_EXTERNAL_DIR para cópia separada antes de iniciar o backup operacional.");
+
+  const envMeta=identifyDatabaseEnvironment();
+  const baselineDump=loadLatestValidDump(folder,ring);
+
+  phase="SNAPSHOT";
+  const dump=await exportDatabaseDump(prisma);
+  const dataSummary=summarizeDatabaseDump(dump);
+  const financialAudit=auditBackupFinancialConsistency(dump);
+  const regression=detectBackupRegression(dump,baselineDump);
+
+  if(regression.regressionDetected&&!flags.has("--allow-regression")){
+    phase="CONFERENCIA_REGRESSAO";
+    throw new Error(`Redução inesperada de registros detectada (${regression.previousBusinessRows} -> ${regression.currentBusinessRows}). Use --allow-regression se a exclusão foi intencional.`);
+  }
+
+  phase="CAPACIDADE_E_DESEMPENHO";
+  const performanceMetrics=measureBackupPerformanceAndCapacity(dump,ring.primary);
+  preflightCapacityCheck(folder,performanceMetrics.encryptedBytes,Number(process.env.BACKUP_MIN_FREE_BYTES??1024*1024));
+
+  phase="GRAVACAO_LOCAL";
+  const local=saveBackup(folder,dump,ring.primary);
+
+  // Retenção só ocorre depois de confirmar a cópia externa. Falhas preservam a cópia local.
+  phase="COPIA_EXTERNA";
+  const external=mirrorBackup(local,process.env.BACKUP_EXTERNAL_DIR,ring);
+
+  let archive:string|null=null;
+  if(process.env.BACKUP_ARCHIVE_DIR?.trim()){
+    phase="COPIA_ARQUIVO_INDEPENDENTE";
+    archive=mirrorBackup(local,process.env.BACKUP_ARCHIVE_DIR.trim(),ring);
+  }
+
+  phase="REGISTRO_MONITORAMENTO";
+  await monitorHeartbeat(prisma,"backup");
+
+  phase="RETENCAO";
+  const retention=applyRetention(folder,ring,keep);
+  const externalKeep=Number(process.env.BACKUP_EXTERNAL_KEEP??keep);
+  const externalRetention=Number.isSafeInteger(externalKeep)&&externalKeep>=2&&flags.has("--retain-external")
+    ?applyRetention(process.env.BACKUP_EXTERNAL_DIR,ring,externalKeep)
+    :"manual: backup:retention externo";
+
+  const sameVolumeExternal=isSameStorageVolume(folder,process.env.BACKUP_EXTERNAL_DIR);
+
+  recordLocalBackupHistory({
+    status:"COPIADO_E_VERIFICADO",
+    phase:"CONCLUIDO",
+    environment:envMeta.environment,
+    targetHost:envMeta.targetHost,
+    keyId:ring.primaryId,
+    modelCount:dump.modelCount,
+    totalRows:dump.totalRows,
+    businessRows:dataSummary.businessRows,
+    regressionDetected:regression.regressionDetected,
+    destinations:{local,external,archive},
+    rehearsalStatus:"pendente: executar backup:rehearse",
+    diagnostic:sameVolumeExternal
+      ?"Backup concluído e verificado; atenção: destino externo compartilha o mesmo volume físico do diretório local."
+      :"Backup concluído e verificado em todos os destinos."
+  });
+
+  return {
+    status:"COPIADO_E_VERIFICADO" as const,
+    keyId:ring.primaryId,
+    environment:envMeta,
+    local,
+    external,
+    archive,
+    sameVolumeExternal,
+    models:dump.modelCount,
+    rows:dump.totalRows,
+    businessRows:dataSummary.businessRows,
+    nonEmptyTables:dataSummary.nonEmptyTables,
+    financialTotals:dataSummary.financialTotals,
+    financialAudit:{valid:financialAudit.valid,totalInconsistencies:financialAudit.totalInconsistencies},
+    performance:{
+      encryptedBytes:performanceMetrics.encryptedBytes,
+      compressionRatio:performanceMetrics.compressionRatio,
+      totalElapsedMs:performanceMetrics.totalElapsedMs
+    },
+    regressionCheck:regression,
+    retention,
+    externalRetention,
+    rehearsal:"pendente: executar backup:rehearse"
+  };
 }
 
 async function main(){
@@ -108,6 +201,26 @@ async function main(){
     return;
   }
 
+  if(mode==="--dossier"){
+    const dump=await exportDatabaseDump(prisma);
+    const dossier=generateFinalMaintenanceDossier({
+      dump,
+      keyOrRing:ring,
+      outputDossierPath:path.resolve("homologacao-resultados/dossie-backup-pacotes-1-18.json")
+    });
+    console.log(JSON.stringify(dossier,null,2));
+    return;
+  }
+
+  if(mode==="--scheduled"){
+    const scheduledResult=await runScheduledBackupWithLockAndRetry({
+      lockFolder:folder,
+      task:()=>executeBackupCycle(ring,folder,keep,flags)
+    });
+    console.log(JSON.stringify(scheduledResult,null,2));
+    return;
+  }
+
   if(mode&&mode!=="--retain"&&mode!=="--retention-plan"&&mode!=="--allow-regression")throw new Error("Opção desconhecida.");
   if(mode==="--retain"||mode==="--retention-plan"){
     const targetFlag=args[1];
@@ -122,83 +235,8 @@ async function main(){
     return;
   }
 
-  if(!process.env.BACKUP_EXTERNAL_DIR)throw new Error("Configure BACKUP_EXTERNAL_DIR para cópia separada antes de iniciar o backup operacional.");
-
-  const envMeta=identifyDatabaseEnvironment();
-  const baselineDump=loadLatestValidDump(folder,ring);
-
-  phase="SNAPSHOT";
-  const dump=await exportDatabaseDump(prisma);
-  const dataSummary=summarizeDatabaseDump(dump);
-  const financialAudit=auditBackupFinancialConsistency(dump);
-  const regression=detectBackupRegression(dump,baselineDump);
-
-  if(regression.regressionDetected&&!flags.has("--allow-regression")){
-    phase="CONFERENCIA_REGRESSAO";
-    throw new Error(`Redução inesperada de registros detectada (${regression.previousBusinessRows} -> ${regression.currentBusinessRows}). Use --allow-regression se a exclusão foi intencional.`);
-  }
-
-  phase="GRAVACAO_LOCAL";
-  const local=saveBackup(folder,dump,ring.primary);
-
-  // Retenção só ocorre depois de confirmar a cópia externa. Falhas preservam a cópia local.
-  phase="COPIA_EXTERNA";
-  const external=mirrorBackup(local,process.env.BACKUP_EXTERNAL_DIR,ring);
-
-  let archive:string|null=null;
-  if(process.env.BACKUP_ARCHIVE_DIR?.trim()){
-    phase="COPIA_ARQUIVO_INDEPENDENTE";
-    archive=mirrorBackup(local,process.env.BACKUP_ARCHIVE_DIR.trim(),ring);
-  }
-
-  phase="REGISTRO_MONITORAMENTO";
-  await monitorHeartbeat(prisma,"backup");
-
-  phase="RETENCAO";
-  const retention=applyRetention(folder,ring,keep);
-  const externalKeep=Number(process.env.BACKUP_EXTERNAL_KEEP??keep);
-  const externalRetention=Number.isSafeInteger(externalKeep)&&externalKeep>=2&&flags.has("--retain-external")
-    ?applyRetention(process.env.BACKUP_EXTERNAL_DIR,ring,externalKeep)
-    :"manual: backup:retention externo";
-
-  const sameVolumeExternal=isSameStorageVolume(folder,process.env.BACKUP_EXTERNAL_DIR);
-
-  recordLocalBackupHistory({
-    status:"COPIADO_E_VERIFICADO",
-    phase:"CONCLUIDO",
-    environment:envMeta.environment,
-    targetHost:envMeta.targetHost,
-    keyId:ring.primaryId,
-    modelCount:dump.modelCount,
-    totalRows:dump.totalRows,
-    businessRows:dataSummary.businessRows,
-    regressionDetected:regression.regressionDetected,
-    destinations:{local,external,archive},
-    rehearsalStatus:"pendente: executar backup:rehearse",
-    diagnostic:sameVolumeExternal
-      ?"Backup concluído e verificado; atenção: destino externo compartilha o mesmo volume físico do diretório local."
-      :"Backup concluído e verificado em todos os destinos."
-  });
-
-  console.log(JSON.stringify({
-    status:"COPIADO_E_VERIFICADO",
-    keyId:ring.primaryId,
-    environment:envMeta,
-    local,
-    external,
-    archive,
-    sameVolumeExternal,
-    models:dump.modelCount,
-    rows:dump.totalRows,
-    businessRows:dataSummary.businessRows,
-    nonEmptyTables:dataSummary.nonEmptyTables,
-    financialTotals:dataSummary.financialTotals,
-    financialAudit:{valid:financialAudit.valid,totalInconsistencies:financialAudit.totalInconsistencies},
-    regressionCheck:regression,
-    retention,
-    externalRetention,
-    rehearsal:"pendente: executar backup:rehearse"
-  },null,2));
+  const result=await executeBackupCycle(ring,folder,keep,flags);
+  console.log(JSON.stringify(result,null,2));
 }
 
 main().catch((err)=>{
