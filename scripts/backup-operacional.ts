@@ -26,6 +26,7 @@ import {
   runScheduledBackupWithLockAndRetry,
   preflightCapacityCheck,
   measureBackupPerformanceAndCapacity,
+  saveImmutableProtectedCopy,
   generateFinalMaintenanceDossier
 } from "../src/lib/operational-backup";
 import {
@@ -77,7 +78,9 @@ async function executeBackupCycle(ring:ReturnType<typeof backupKeyRing>,folder:s
   let archive:string|null=null;
   if(process.env.BACKUP_ARCHIVE_DIR?.trim()){
     phase="COPIA_ARQUIVO_INDEPENDENTE";
-    archive=mirrorBackup(local,process.env.BACKUP_ARCHIVE_DIR.trim(),ring);
+    const immutableDays=Number(process.env.BACKUP_IMMUTABLE_DAYS??30);
+    const savedImm=saveImmutableProtectedCopy(local,process.env.BACKUP_ARCHIVE_DIR.trim(),ring,immutableDays);
+    archive=savedImm.protectedFile;
   }
 
   phase="REGISTRO_MONITORAMENTO";
