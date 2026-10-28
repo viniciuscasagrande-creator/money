@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import {type DatabaseDump} from "./backup-data";
+import {type DatabaseDump, summarizeDatabaseDump, verifyDumpRelationalIntegrity} from "./backup-data";
 
 export function compareRestoredDump(original:DatabaseDump,restored:DatabaseDump,includeSessions=false){
+  assert.equal(restored.version,original.version,"Versão de schema divergente na restauração.");
+  assert.equal(restored.modelCount,original.modelCount,"Quantidade de modelos divergente na restauração.");
   let rowsCompared=0;
   for(const [key,table]of Object.entries(original.tables)){
     const expectedRows=key==="session"&&!includeSessions?[]:table.rows;
@@ -22,5 +24,17 @@ export function compareRestoredDump(original:DatabaseDump,restored:DatabaseDump,
     const ledger=balances.get(account.id)??0n;
     assert.equal(ledger,BigInt(String(account.balanceCents)),`Saldo bancário divergente: ${account.id}`);
   }
-  return {modelsCompared:original.modelCount,rowsCompared,sessions:includeSessions?"preservadas somente no ensaio isolado":"invalidadas",bankLedger:"reconciliado"};
+  const relational=verifyDumpRelationalIntegrity(restored);
+  assert.equal(relational.valid,true,"Integridade referencial reprovada após restauração.");
+  const summary=summarizeDatabaseDump(restored);
+  assert.equal(summary.financialTotals.bankLedgerReconciled,true,"Conciliação do razão bancário reprovada.");
+  return {
+    modelsCompared:original.modelCount,
+    rowsCompared,
+    referentialLinksChecked:relational.referentialLinksChecked,
+    schemaVersion:restored.version,
+    sessions:includeSessions?"preservadas somente no ensaio isolado":"invalidadas",
+    bankLedger:"reconciliado",
+    financialTotals:summary.financialTotals
+  };
 }

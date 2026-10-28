@@ -1,7 +1,7 @@
 import {NextRequest,NextResponse} from "next/server";
 import {authorize,fail} from "@/lib/auth";
 import {prisma} from "@/lib/prisma";
-import {collectMonitorSignals,monitorConfig,webhookConfig,retryOperationalNotification} from "@/lib/operational-monitor";
+import {collectMonitorSignals,monitorConfig,webhookConfig,retryOperationalNotification,inspectBackupOperationsHealth} from "@/lib/operational-monitor";
 import {withMonitoring} from "@/lib/observability";
 import {z} from "zod";
 import {apiCatch} from "@/lib/validation";
@@ -18,7 +18,8 @@ async function GETHandler(request:NextRequest){
   let channelConfigured=false;try{webhookConfig();channelConfigured=true;}catch{}
   const evaluationAge=evaluation?Date.now()-evaluation.updatedAt.getTime():Infinity;
   const evaluationFresh=evaluationAge>=-60000&&evaluationAge<10*60000;
-  return NextResponse.json({checkedAt:new Date().toISOString(),lastEvaluationAt:evaluation?.updatedAt.toISOString()??null,evaluationFresh,status:signals.some(s=>s.active)||dead?"ATTENTION":evaluationFresh?"OK":"NOT_CHECKED",signals,notifications:{pending,dead,recent},channelConfigured},{headers:{"Cache-Control":"no-store, private"}});
+  const backupHealth=inspectBackupOperationsHealth();
+  return NextResponse.json({checkedAt:new Date().toISOString(),lastEvaluationAt:evaluation?.updatedAt.toISOString()??null,evaluationFresh,status:signals.some(s=>s.active)||dead||backupHealth.status==="CRITICAL"?"ATTENTION":evaluationFresh?"OK":"NOT_CHECKED",signals,notifications:{pending,dead,recent},channelConfigured,backupHealth},{headers:{"Cache-Control":"no-store, private"}});
 }
 export const GET=withMonitoring("/api/sistema/monitoramento",GETHandler);
 async function POSTHandler(request:NextRequest){

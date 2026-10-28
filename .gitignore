@@ -15,7 +15,7 @@ coverage/
 homologacao-resultados/
 .neon
 .vercel
-backups/
+/backups/
 
 .vercel
 .env*
@@ -25,6 +25,8 @@ backups/
 !.env.monitor.example
 *.moneybak
 *.moneybak.partial
+*.moneyzip
+*.moneyzip.partial
 db-dump-*.json
 manifesto-backup-*.json
 *.bundle
